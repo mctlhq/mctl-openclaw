@@ -31,6 +31,12 @@ export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
   deactivate: () => void;
 };
 
+type QueuedDiscordInboundDelivery = {
+  data: DiscordMessageEvent;
+  client: Client;
+  abortSignal?: AbortSignal;
+};
+
 const RECENT_DISCORD_MESSAGE_TTL_MS = 5 * 60_000;
 const RECENT_DISCORD_MESSAGE_MAX = 5000;
 
@@ -74,10 +80,39 @@ export function createDiscordMessageHandler(
     ttlMs: RECENT_DISCORD_MESSAGE_TTL_MS,
     maxSize: RECENT_DISCORD_MESSAGE_MAX,
   });
+  const pendingDuplicateDeliveries = new Map<string, QueuedDiscordInboundDelivery>();
+  let replayHandler: DiscordMessageHandler | null = null;
+  const uniqueDedupeKeys = (keys: Array<string | null | undefined>) => [
+    ...new Set(keys.filter((key): key is string => Boolean(key))),
+  ];
   const releaseDedupeKeys = (keys: Array<string | null | undefined>) => {
     for (const key of keys) {
       recentInboundMessages.delete(key);
     }
+  };
+  const clearPendingDuplicateDeliveries = (keys: Array<string | null | undefined>) => {
+    for (const key of keys) {
+      if (key) {
+        pendingDuplicateDeliveries.delete(key);
+      }
+    }
+  };
+  const replayPendingDuplicateDeliveries = (keys: Array<string | null | undefined>) => {
+    const retries = uniqueDedupeKeys(keys)
+      .map((key) => {
+        const retry = pendingDuplicateDeliveries.get(key);
+        pendingDuplicateDeliveries.delete(key);
+        return retry;
+      })
+      .filter((retry): retry is QueuedDiscordInboundDelivery => Boolean(retry));
+    if (retries.length === 0) {
+      return;
+    }
+    queueMicrotask(() => {
+      for (const retry of retries) {
+        void replayHandler?.(retry.data, retry.client, { abortSignal: retry.abortSignal });
+      }
+    });
   };
 
   const { debouncer } = createChannelInboundDebouncer<{
@@ -123,11 +158,10 @@ export function createDiscordMessageHandler(
       if (!last) {
         return;
       }
-      const dedupeKeys = entries
-        .map((entry) => entry.dedupeKey)
-        .filter((key): key is string => Boolean(key));
+      const dedupeKeys = uniqueDedupeKeys(entries.map((entry) => entry.dedupeKey));
       const abortSignal = last.abortSignal;
       if (abortSignal?.aborted) {
+        clearPendingDuplicateDeliveries(dedupeKeys);
         return;
       }
       if (entries.length === 1) {
@@ -140,11 +174,16 @@ export function createDiscordMessageHandler(
           client: last.client,
         });
         if (!ctx) {
+          clearPendingDuplicateDeliveries(dedupeKeys);
           return;
         }
         inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
+          onSuccess: () => {
+            clearPendingDuplicateDeliveries(dedupeKeys);
+          },
           onError: () => {
             releaseDedupeKeys(dedupeKeys);
+            replayPendingDuplicateDeliveries(dedupeKeys);
           },
         });
         return;
@@ -176,6 +215,7 @@ export function createDiscordMessageHandler(
         client: last.client,
       });
       if (!ctx) {
+        clearPendingDuplicateDeliveries(dedupeKeys);
         return;
       }
       if (entries.length > 1) {
@@ -192,13 +232,19 @@ export function createDiscordMessageHandler(
         }
       }
       inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
+        onSuccess: () => {
+          clearPendingDuplicateDeliveries(dedupeKeys);
+        },
         onError: () => {
           releaseDedupeKeys(dedupeKeys);
+          replayPendingDuplicateDeliveries(dedupeKeys);
         },
       });
     },
     onError: (err, entries) => {
-      releaseDedupeKeys(entries.map((entry) => entry.dedupeKey));
+      const dedupeKeys = uniqueDedupeKeys(entries.map((entry) => entry.dedupeKey));
+      releaseDedupeKeys(dedupeKeys);
+      replayPendingDuplicateDeliveries(dedupeKeys);
       params.runtime.error?.(danger(`discord debounce flush failed: ${String(err)}`));
     },
   });
@@ -223,6 +269,11 @@ export function createDiscordMessageHandler(
         data,
       });
       if (dedupeKey && recentInboundMessages.check(dedupeKey)) {
+        pendingDuplicateDeliveries.set(dedupeKey, {
+          data,
+          client,
+          abortSignal: options?.abortSignal,
+        });
         return;
       }
 
@@ -238,6 +289,7 @@ export function createDiscordMessageHandler(
     }
   };
 
+  replayHandler = handler;
   handler.deactivate = inboundWorker.deactivate;
 
   return handler;

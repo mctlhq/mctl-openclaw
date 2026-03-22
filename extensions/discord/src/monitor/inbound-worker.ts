@@ -19,6 +19,7 @@ export type DiscordInboundWorker = {
   enqueue: (
     job: DiscordInboundJob,
     callbacks?: {
+      onSuccess?: () => void;
       onError?: (error: unknown) => void;
     },
   ) => void;
@@ -97,6 +98,7 @@ export function createDiscordInboundWorker(
               lifecycleSignal: params.abortSignal,
               runTimeoutMs: params.runTimeoutMs,
             });
+            callbacks?.onSuccess?.();
           } catch (error) {
             callbacks?.onError?.(error);
             throw error;

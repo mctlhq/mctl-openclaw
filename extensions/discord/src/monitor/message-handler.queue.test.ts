@@ -232,6 +232,79 @@ describe("createDiscordMessageHandler queue behavior", () => {
     expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(2);
   });
 
+  it("replays a duplicate that arrived during preflight when the first attempt fails", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+
+    const firstAttempt = createDeferred();
+    preflightDiscordMessageMock
+      .mockImplementationOnce(async () => {
+        await firstAttempt.promise;
+        throw new Error("preflight boom");
+      })
+      .mockImplementation(async (params: { data: { channel_id: string } }) =>
+        createPreflightContext(params.data.channel_id),
+      );
+
+    const params = createDiscordHandlerParams();
+    const handler = createDiscordMessageHandler(params);
+    const duplicate = createMessageData("m-preflight-inflight");
+
+    const firstCall = handler(duplicate as never, {} as never);
+    await vi.waitFor(() => {
+      expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(1);
+    });
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+
+    firstAttempt.resolve();
+    await expect(firstCall).resolves.toBeUndefined();
+
+    await vi.waitFor(() => {
+      expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(2);
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+    });
+    expect(params.runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("discord debounce flush failed: Error: preflight boom"),
+    );
+  });
+
+  it("replays a duplicate that arrived during worker execution when the first attempt fails", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+    preflightDiscordMessageMock.mockImplementation(
+      async (params: { data: { channel_id: string } }) =>
+        createPreflightContext(params.data.channel_id),
+    );
+
+    const firstRun = createDeferred();
+    processDiscordMessageMock
+      .mockImplementationOnce(async () => {
+        await firstRun.promise;
+        throw new Error("worker boom");
+      })
+      .mockResolvedValueOnce(undefined);
+
+    const params = createDiscordHandlerParams();
+    const handler = createDiscordMessageHandler(params);
+    const duplicate = createMessageData("m-worker-inflight");
+
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+    await vi.waitFor(() => {
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+    firstRun.resolve();
+
+    await vi.waitFor(() => {
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(2);
+    });
+    expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(2);
+    expect(params.runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("discord inbound worker failed: Error: worker boom"),
+    );
+  });
+
   it("applies explicit inbound worker timeout to queued runs so stalled runs do not block the queue", async () => {
     vi.useFakeTimers();
     try {
