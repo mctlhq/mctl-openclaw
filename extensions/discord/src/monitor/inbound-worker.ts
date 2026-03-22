@@ -16,7 +16,12 @@ type DiscordInboundWorkerParams = {
 };
 
 export type DiscordInboundWorker = {
-  enqueue: (job: DiscordInboundJob) => void;
+  enqueue: (
+    job: DiscordInboundJob,
+    callbacks?: {
+      onError?: (error: unknown) => void;
+    },
+  ) => void;
   deactivate: () => void;
 };
 
@@ -75,7 +80,7 @@ export function createDiscordInboundWorker(
   });
 
   return {
-    enqueue(job) {
+    enqueue(job, callbacks) {
       void runQueue
         .enqueue(job.queueKey, async () => {
           if (!runState.isActive()) {
@@ -92,6 +97,9 @@ export function createDiscordInboundWorker(
               lifecycleSignal: params.abortSignal,
               runTimeoutMs: params.runTimeoutMs,
             });
+          } catch (error) {
+            callbacks?.onError?.(error);
+            throw error;
           } finally {
             runState.onRunEnd();
           }

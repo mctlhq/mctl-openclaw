@@ -74,11 +74,17 @@ export function createDiscordMessageHandler(
     ttlMs: RECENT_DISCORD_MESSAGE_TTL_MS,
     maxSize: RECENT_DISCORD_MESSAGE_MAX,
   });
+  const releaseDedupeKeys = (keys: Array<string | null | undefined>) => {
+    for (const key of keys) {
+      recentInboundMessages.delete(key);
+    }
+  };
 
   const { debouncer } = createChannelInboundDebouncer<{
     data: DiscordMessageEvent;
     client: Client;
     abortSignal?: AbortSignal;
+    dedupeKey?: string | null;
   }>({
     cfg: params.cfg,
     channel: "discord",
@@ -117,6 +123,9 @@ export function createDiscordMessageHandler(
       if (!last) {
         return;
       }
+      const dedupeKeys = entries
+        .map((entry) => entry.dedupeKey)
+        .filter((key): key is string => Boolean(key));
       const abortSignal = last.abortSignal;
       if (abortSignal?.aborted) {
         return;
@@ -133,7 +142,11 @@ export function createDiscordMessageHandler(
         if (!ctx) {
           return;
         }
-        inboundWorker.enqueue(buildDiscordInboundJob(ctx));
+        inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
+          onError: () => {
+            releaseDedupeKeys(dedupeKeys);
+          },
+        });
         return;
       }
       const combinedBaseText = entries
@@ -178,14 +191,20 @@ export function createDiscordMessageHandler(
           ctxBatch.MessageSidLast = ids[ids.length - 1];
         }
       }
-      inboundWorker.enqueue(buildDiscordInboundJob(ctx));
+      inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
+        onError: () => {
+          releaseDedupeKeys(dedupeKeys);
+        },
+      });
     },
-    onError: (err) => {
+    onError: (err, entries) => {
+      releaseDedupeKeys(entries.map((entry) => entry.dedupeKey));
       params.runtime.error?.(danger(`discord debounce flush failed: ${String(err)}`));
     },
   });
 
   const handler: DiscordMessageHandlerWithLifecycle = async (data, client, options) => {
+    let dedupeKey: string | null = null;
     try {
       if (options?.abortSignal?.aborted) {
         return;
@@ -199,7 +218,7 @@ export function createDiscordMessageHandler(
       if (params.botUserId && msgAuthorId === params.botUserId) {
         return;
       }
-      const dedupeKey = buildDiscordInboundDedupeKey({
+      dedupeKey = buildDiscordInboundDedupeKey({
         accountId: params.accountId,
         data,
       });
@@ -207,8 +226,14 @@ export function createDiscordMessageHandler(
         return;
       }
 
-      await debouncer.enqueue({ data, client, abortSignal: options?.abortSignal });
+      await debouncer.enqueue({
+        data,
+        client,
+        abortSignal: options?.abortSignal,
+        dedupeKey,
+      });
     } catch (err) {
+      releaseDedupeKeys([dedupeKey]);
       params.runtime.error?.(danger(`handler failed: ${String(err)}`));
     }
   };
