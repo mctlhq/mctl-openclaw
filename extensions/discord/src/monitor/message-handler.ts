@@ -39,6 +39,8 @@ type QueuedDiscordInboundDelivery = {
 
 const RECENT_DISCORD_MESSAGE_TTL_MS = 5 * 60_000;
 const RECENT_DISCORD_MESSAGE_MAX = 5000;
+const IN_FLIGHT_DISCORD_MESSAGE_MAX = 5000;
+const PENDING_DUPLICATE_DELIVERY_MAX = 5000;
 
 function buildDiscordInboundDedupeKey(params: {
   accountId: string;
@@ -121,6 +123,34 @@ export function createDiscordMessageHandler(
         void replayHandler?.(retry.data, retry.client, { abortSignal: retry.abortSignal });
       }
     });
+  };
+  const tryTrackInFlightDedupeKey = (key: string | null | undefined): boolean => {
+    if (!key) {
+      return false;
+    }
+    if (inFlightDedupeKeys.has(key)) {
+      return true;
+    }
+    if (inFlightDedupeKeys.size >= IN_FLIGHT_DISCORD_MESSAGE_MAX) {
+      return false;
+    }
+    inFlightDedupeKeys.add(key);
+    return true;
+  };
+  const tryQueuePendingDuplicateDelivery = (
+    key: string | null | undefined,
+    delivery: QueuedDiscordInboundDelivery,
+  ) => {
+    if (!key) {
+      return;
+    }
+    if (
+      !pendingDuplicateDeliveries.has(key) &&
+      pendingDuplicateDeliveries.size >= PENDING_DUPLICATE_DELIVERY_MAX
+    ) {
+      return;
+    }
+    pendingDuplicateDeliveries.set(key, delivery);
   };
 
   const { debouncer } = createChannelInboundDebouncer<{
@@ -300,7 +330,7 @@ export function createDiscordMessageHandler(
         data,
       });
       if (dedupeKey && inFlightDedupeKeys.has(dedupeKey)) {
-        pendingDuplicateDeliveries.set(dedupeKey, {
+        tryQueuePendingDuplicateDelivery(dedupeKey, {
           data,
           client,
           abortSignal: options?.abortSignal,
@@ -310,8 +340,9 @@ export function createDiscordMessageHandler(
       if (dedupeKey && recentInboundMessages.check(dedupeKey)) {
         return;
       }
-      if (dedupeKey) {
-        inFlightDedupeKeys.add(dedupeKey);
+      if (dedupeKey && !tryTrackInFlightDedupeKey(dedupeKey)) {
+        recentInboundMessages.delete(dedupeKey);
+        dedupeKey = null;
       }
 
       await debouncer.enqueue({
@@ -328,7 +359,12 @@ export function createDiscordMessageHandler(
   };
 
   replayHandler = handler;
-  handler.deactivate = inboundWorker.deactivate;
+  handler.deactivate = () => {
+    pendingDuplicateDeliveries.clear();
+    inFlightDedupeKeys.clear();
+    recentInboundMessages.clear();
+    inboundWorker.deactivate();
+  };
 
   return handler;
 }
