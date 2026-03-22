@@ -170,6 +170,7 @@ export function createDiscordMessageHandler(
       const abortSignal = last.abortSignal;
       if (abortSignal?.aborted) {
         clearInFlightDedupeKeys(dedupeKeys);
+        releaseDedupeKeys(dedupeKeys);
         clearPendingDuplicateDeliveries(dedupeKeys);
         return;
       }
@@ -184,6 +185,8 @@ export function createDiscordMessageHandler(
         });
         if (!ctx) {
           clearInFlightDedupeKeys(dedupeKeys);
+          releaseDedupeKeys(dedupeKeys);
+          replayPendingDuplicateDeliveries(dedupeKeys);
           clearPendingDuplicateDeliveries(dedupeKeys);
           return;
         }
@@ -228,6 +231,8 @@ export function createDiscordMessageHandler(
       });
       if (!ctx) {
         clearInFlightDedupeKeys(dedupeKeys);
+        releaseDedupeKeys(dedupeKeys);
+        replayPendingDuplicateDeliveries(dedupeKeys);
         clearPendingDuplicateDeliveries(dedupeKeys);
         return;
       }

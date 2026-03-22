@@ -198,6 +198,61 @@ describe("createDiscordMessageHandler queue behavior", () => {
     );
   });
 
+  it("releases the dedupe key when preflight returns null so a later hydrated redelivery can retry", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+
+    preflightDiscordMessageMock
+      .mockResolvedValueOnce(null)
+      .mockImplementation(async (params: { data: { channel_id: string } }) =>
+        createPreflightContext(params.data.channel_id),
+      );
+
+    const handler = createDiscordMessageHandler(createDiscordHandlerParams());
+    const duplicate = createMessageData("m-null-retry");
+
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+
+    await vi.waitFor(() => {
+      expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(2);
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("releases the dedupe key when a queued flush is aborted so the same delivery can retry", async () => {
+    vi.useFakeTimers();
+    try {
+      preflightDiscordMessageMock.mockReset();
+      processDiscordMessageMock.mockReset();
+      preflightDiscordMessageMock.mockImplementation(
+        async (params: { data: { channel_id: string } }) =>
+          createPreflightContext(params.data.channel_id),
+      );
+
+      const params = createDiscordHandlerParams();
+      params.cfg.messages = { inbound: { debounceMs: 50 } };
+      const handler = createDiscordMessageHandler(params);
+      const duplicate = createMessageData("m-abort-retry");
+      const abortController = new AbortController();
+
+      await expect(
+        handler(duplicate as never, {} as never, { abortSignal: abortController.signal }),
+      ).resolves.toBeUndefined();
+      abortController.abort();
+
+      await vi.advanceTimersByTimeAsync(60);
+      await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+
+      await vi.waitFor(() => {
+        expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(1);
+        expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("releases the dedupe key when the inbound worker fails so the same delivery can retry", async () => {
     preflightDiscordMessageMock.mockReset();
     processDiscordMessageMock.mockReset();
