@@ -49,6 +49,9 @@ export function handleConnected(host: LifecycleHost) {
   (
     host as unknown as { captureMctlConnectCallbackFromUrl?: () => void }
   ).captureMctlConnectCallbackFromUrl?.();
+  (
+    host as unknown as { captureCodexConnectCallbackFromUrl?: () => void }
+  ).captureCodexConnectCallbackFromUrl?.();
   const bootstrapReady = loadControlUiBootstrapConfig(host);
   syncTabWithLocation(host as unknown as Parameters<typeof syncTabWithLocation>[0], true);
   syncThemeWithSettings(host as unknown as Parameters<typeof syncThemeWithSettings>[0]);

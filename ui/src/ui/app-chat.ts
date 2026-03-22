@@ -6,6 +6,7 @@ import type { OpenClawApp } from "./app.ts";
 import { executeSlashCommand } from "./chat/slash-command-executor.ts";
 import { parseSlashCommand } from "./chat/slash-commands.ts";
 import { abortChatRun, loadChatHistory, sendChatMessage } from "./controllers/chat.ts";
+import { requestCodexConnectAuthorizeUrl } from "./controllers/codex-connect.ts";
 import { requestMctlConnectAuthorizeUrl } from "./controllers/mctl-connect.ts";
 import { loadModels } from "./controllers/models.ts";
 import { loadSessions } from "./controllers/sessions.ts";
@@ -78,6 +79,11 @@ function isChatResetCommand(text: string) {
 function isMctlConnectAlias(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   return normalized === "connect mctl" || normalized === "connect to mctl";
+}
+
+function isCodexConnectAlias(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return normalized === "connect codex" || normalized === "connect to codex";
 }
 
 export async function handleAbortChat(host: ChatHost) {
@@ -230,7 +236,16 @@ export async function handleSendChat(
           },
           args: "mctl",
         }
-      : null);
+      : isCodexConnectAlias(message)
+        ? {
+            command: {
+              name: "connect",
+              description: "Start a connector flow",
+              executeLocal: true,
+            },
+            args: "codex",
+          }
+        : null);
   if (parsed?.command.executeLocal) {
     if (isChatBusy(host) && shouldQueueLocalSlashCommand(parsed.command.name)) {
       if (messageOverride == null) {
@@ -316,6 +331,10 @@ async function dispatchSlashCommand(
       host.onSlashAction?.("export");
       return;
     case "connect":
+      if (args.trim().toLowerCase() === "codex") {
+        await connectCodexFromChat(host, args);
+        return;
+      }
       await connectMctlFromChat(host, args);
       return;
   }
@@ -400,6 +419,38 @@ async function connectMctlFromChat(host: ChatHost, args: string) {
     );
   } catch (err) {
     injectCommandResult(host, `Failed to start mctl connect flow: ${String(err)}`);
+  }
+  scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+}
+
+async function connectCodexFromChat(host: ChatHost, args: string) {
+  const target = args.trim().toLowerCase();
+  if (target && target !== "codex") {
+    injectCommandResult(
+      host,
+      `Unknown connector target \`${args.trim()}\`. Use \`/connect codex\`.`,
+    );
+    scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+    return;
+  }
+  if (!host.client || !host.connected) {
+    return;
+  }
+  try {
+    const authorizeUrl = await requestCodexConnectAuthorizeUrl({
+      client: host.client,
+      basePath: host.basePath,
+    });
+    const opened =
+      typeof window !== "undefined" ? window.open(authorizeUrl, "_blank", "noopener") : null;
+    injectCommandResult(
+      host,
+      opened
+        ? `Opened OpenAI Codex connect flow in a new tab. If nothing appeared, open this URL manually:\n${authorizeUrl}`
+        : `Open this URL to connect OpenAI Codex:\n${authorizeUrl}`,
+    );
+  } catch (err) {
+    injectCommandResult(host, `Failed to start OpenAI Codex connect flow: ${String(err)}`);
   }
   scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
 }

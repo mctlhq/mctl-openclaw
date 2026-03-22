@@ -134,6 +134,11 @@ export type GatewayTrustedProxyConfig = {
    */
   userHeader: string;
   /**
+   * Optional header containing the authenticated caller's tenant role.
+   * Example values: "owner", "developer", "viewer".
+   */
+  roleHeader?: string;
+  /**
    * Additional headers that MUST be present for the request to be trusted.
    * Use this to verify the request actually came through the proxy.
    * Example: ["x-forwarded-proto", "x-forwarded-host"]

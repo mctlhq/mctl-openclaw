@@ -55,6 +55,13 @@ import type { AppViewState } from "./app-view-state.ts";
 import { normalizeAssistantIdentity } from "./assistant-identity.ts";
 import { exportChatMarkdown } from "./chat/export.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
+import {
+  captureCodexConnectCallbackFromUrl as captureCodexConnectCallbackFromUrlInternal,
+  disconnectCodex as disconnectCodexInternal,
+  loadCodexConnectStatus as loadCodexConnectStatusInternal,
+  maybeCompleteCodexConnect as maybeCompleteCodexConnectInternal,
+  startCodexConnect as startCodexConnectInternal,
+} from "./controllers/codex-connect.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
@@ -406,6 +413,12 @@ export class OpenClawApp extends LitElement {
   @state() mctlCallbackCode: string | null = null;
   @state() mctlCallbackState: string | null = null;
   @state() mctlCallbackError: string | null = null;
+  @state() codexConnectLoading = false;
+  @state() codexConnectStatus: import("./types.ts").OpenAICodexConnectStatus | null = null;
+  @state() codexConnectError: string | null = null;
+  @state() codexCallbackCode: string | null = null;
+  @state() codexCallbackState: string | null = null;
+  @state() codexCallbackError: string | null = null;
 
   @state() skillsLoading = false;
   @state() skillsReport: SkillStatusReport | null = null;
@@ -597,20 +610,40 @@ export class OpenClawApp extends LitElement {
     captureMctlConnectCallbackFromUrlInternal(this);
   }
 
+  captureCodexConnectCallbackFromUrl() {
+    captureCodexConnectCallbackFromUrlInternal(this);
+  }
+
   async loadMctlConnectStatus() {
     await loadMctlConnectStatusInternal(this);
+  }
+
+  async loadCodexConnectStatus() {
+    await loadCodexConnectStatusInternal(this);
   }
 
   async startMctlConnect() {
     await startMctlConnectInternal(this);
   }
 
+  async startCodexConnect() {
+    await startCodexConnectInternal(this);
+  }
+
   async maybeCompleteMctlConnect() {
     await maybeCompleteMctlConnectInternal(this);
   }
 
+  async maybeCompleteCodexConnect() {
+    await maybeCompleteCodexConnectInternal(this);
+  }
+
   async disconnectMctl() {
     await disconnectMctlInternal(this);
+  }
+
+  async disconnectCodex() {
+    await disconnectCodexInternal(this);
   }
 
   async loadCron() {

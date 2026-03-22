@@ -49,6 +49,7 @@ export type GatewayAuthResult = {
     | "bootstrap-token"
     | "trusted-proxy";
   user?: string;
+  role?: string;
   reason?: string;
   /** Present when the request was blocked by the rate limiter. */
   rateLimited?: boolean;
@@ -327,7 +328,7 @@ function authorizeTrustedProxy(params: {
   req?: IncomingMessage;
   trustedProxies?: string[];
   trustedProxyConfig: GatewayTrustedProxyConfig;
-}): { user: string } | { reason: string } {
+}): { user: string; role?: string } | { reason: string } {
   const { req, trustedProxies, trustedProxyConfig } = params;
 
   if (!req) {
@@ -353,13 +354,19 @@ function authorizeTrustedProxy(params: {
   }
 
   const user = userHeaderValue.trim();
+  const roleHeader = trustedProxyConfig.roleHeader?.trim().toLowerCase();
+  const roleHeaderValue = roleHeader ? headerValue(req.headers[roleHeader]) : undefined;
+  const role =
+    typeof roleHeaderValue === "string" && roleHeaderValue.trim()
+      ? roleHeaderValue.trim()
+      : undefined;
 
   const allowUsers = trustedProxyConfig.allowUsers ?? [];
   if (allowUsers.length > 0 && !allowUsers.includes(user)) {
     return { reason: "trusted_proxy_user_not_allowed" };
   }
 
-  return { user };
+  return { user, role };
 }
 
 function shouldAllowTailscaleHeaderAuth(authSurface: GatewayAuthSurface): boolean {
@@ -394,7 +401,7 @@ export async function authorizeGatewayConnect(
     });
 
     if ("user" in result) {
-      return { ok: true, method: "trusted-proxy", user: result.user };
+      return { ok: true, method: "trusted-proxy", user: result.user, role: result.role };
     }
     return { ok: false, reason: result.reason };
   }

@@ -21,6 +21,7 @@ import { upsertPresence } from "../../../infra/system-presence.js";
 import { loadVoiceWakeConfig } from "../../../infra/voicewake.js";
 import { rawDataToString } from "../../../infra/ws.js";
 import type { createSubsystemLogger } from "../../../logging/subsystem.js";
+import { MCTL_OWNER_SCOPE } from "../../../openai-codex/connect-store.js";
 import { roleScopesAllow } from "../../../shared/operator-scope-compat.js";
 import { isGatewayCliClient, isWebchatClient } from "../../../utils/message-channel.js";
 import { resolveRuntimeServiceVersion } from "../../../version.js";
@@ -33,6 +34,13 @@ import {
   mintCanvasCapabilityToken,
 } from "../../canvas-capability.js";
 import { normalizeDeviceMetadataForAuth } from "../../device-auth.js";
+import {
+  ADMIN_SCOPE,
+  APPROVALS_SCOPE,
+  PAIRING_SCOPE,
+  READ_SCOPE,
+  WRITE_SCOPE,
+} from "../../method-scopes.js";
 import {
   isLocalishHost,
   isLoopbackAddress,
@@ -93,6 +101,31 @@ import {
   shouldSkipBackendSelfPairing,
 } from "./handshake-auth-helpers.js";
 import { isUnauthorizedRoleError, UnauthorizedFloodGuard } from "./unauthorized-flood-guard.js";
+
+function buildTrustedProxyScopes(authResult: GatewayAuthResult): string[] {
+  if (authResult.method !== "trusted-proxy") {
+    return [];
+  }
+  const role = typeof authResult.role === "string" ? authResult.role.trim().toLowerCase() : "";
+  if (!role) {
+    return [READ_SCOPE];
+  }
+  if (role === "owner") {
+    return [
+      `mctl.role:${role}`,
+      MCTL_OWNER_SCOPE,
+      ADMIN_SCOPE,
+      READ_SCOPE,
+      WRITE_SCOPE,
+      APPROVALS_SCOPE,
+      PAIRING_SCOPE,
+    ];
+  }
+  if (role === "developer") {
+    return [`mctl.role:${role}`, READ_SCOPE, WRITE_SCOPE];
+  }
+  return [`mctl.role:${role}`, READ_SCOPE];
+}
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -665,6 +698,10 @@ export function attachGatewayWsMessageHandler(params: {
         if (!authOk) {
           rejectUnauthorized(authResult);
           return;
+        }
+        if (!device && authMethod === "trusted-proxy") {
+          scopes = buildTrustedProxyScopes(authResult);
+          connectParams.scopes = scopes;
         }
 
         const trustedProxyAuthOk = isTrustedProxyControlUiOperatorAuth({

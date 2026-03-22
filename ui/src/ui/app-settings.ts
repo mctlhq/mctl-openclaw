@@ -12,6 +12,7 @@ import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-iden
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents } from "./controllers/agents.ts";
 import { loadChannels } from "./controllers/channels.ts";
+import { loadCodexConnectStatus } from "./controllers/codex-connect.ts";
 import { loadConfig, loadConfigSchema } from "./controllers/config.ts";
 import { loadCronJobs, loadCronRuns, loadCronStatus } from "./controllers/cron.ts";
 import { loadDebug } from "./controllers/debug.ts";
@@ -62,6 +63,9 @@ type SettingsHost = {
   mctlConnectLoading?: boolean;
   mctlConnectStatus?: unknown;
   mctlConnectError?: string | null;
+  codexConnectLoading?: boolean;
+  codexConnectStatus?: unknown;
+  codexConnectError?: string | null;
 };
 
 export function applySettings(host: SettingsHost, next: UiSettings) {
@@ -510,6 +514,7 @@ export async function loadOverview(host: SettingsHost) {
     loadSkills(app),
     loadUsage(app),
     loadMctlConnectStatus(app),
+    loadCodexConnectStatus(app),
     loadOverviewLogs(app),
   ]);
   buildAttentionItems(app);

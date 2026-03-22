@@ -11,6 +11,7 @@ import type {
   CronJob,
   CronStatus,
   MctlConnectStatus,
+  OpenAICodexConnectStatus,
   SessionsListResult,
   SessionsUsageResult,
   SkillStatusReport,
@@ -49,6 +50,9 @@ export type OverviewProps = {
   mctlConnectStatus: MctlConnectStatus | null;
   mctlConnectLoading: boolean;
   mctlConnectError: string | null;
+  codexConnectStatus: OpenAICodexConnectStatus | null;
+  codexConnectLoading: boolean;
+  codexConnectError: string | null;
   showGatewayToken: boolean;
   showGatewayPassword: boolean;
   onSettingsChange: (next: UiSettings) => void;
@@ -62,6 +66,8 @@ export type OverviewProps = {
   onRefreshLogs: () => void;
   onStartMctlConnect: () => void;
   onDisconnectMctl: () => void;
+  onStartCodexConnect: () => void;
+  onDisconnectCodex: () => void;
 };
 
 export function renderOverview(props: OverviewProps) {
@@ -200,6 +206,7 @@ export function renderOverview(props: OverviewProps) {
     ? props.settings.locale
     : i18n.getLocale();
   const mctlStatus = props.mctlConnectStatus;
+  const codexStatus = props.codexConnectStatus;
   const mctlLabel =
     mctlStatus?.state === "connected"
       ? mctlStatus.login
@@ -210,6 +217,17 @@ export function renderOverview(props: OverviewProps) {
         : mctlStatus?.state === "expired"
           ? "Token expired"
           : "Not connected";
+  const codexLabel =
+    codexStatus?.state === "connected"
+      ? codexStatus.accountLabel
+        ? `Connected as ${codexStatus.accountLabel}`
+        : "Connected"
+      : codexStatus?.state === "pending"
+        ? "Authorization pending"
+        : codexStatus?.state === "expired"
+          ? "Token expired"
+          : "Not connected";
+  const codexCanManage = Boolean(codexStatus?.canManage);
 
   return html`
     <section class="grid">
@@ -442,6 +460,77 @@ export function renderOverview(props: OverviewProps) {
                   mctlStatus?.state === "connected"
                     ? "Credentials are stored in the service state directory and survive pod restarts."
                     : "Connect once in the browser. The resulting credentials are stored in .openclaw for this service."
+                }
+              </div>`
+        }
+      </div>
+
+      <div class="card">
+        <div class="card-title">OpenAI Codex</div>
+        <div class="card-sub">Service-wide Codex authorization for this OpenClaw tenant.</div>
+        <div class="stat-grid" style="margin-top: 16px;">
+          <div class="stat">
+            <div class="stat-label">Status</div>
+            <div class="stat-value ${codexStatus?.state === "connected" ? "ok" : "warn"}">
+              ${codexLabel}
+            </div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Role</div>
+            <div class="stat-value">${codexStatus?.teamRole ?? t("common.na")}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Expires</div>
+            <div class="stat-value">
+              ${
+                codexStatus?.expiresAt
+                  ? formatRelativeTimestamp(Date.parse(codexStatus.expiresAt))
+                  : t("common.na")
+              }
+            </div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Requested</div>
+            <div class="stat-value">
+              ${
+                codexStatus?.startedAt
+                  ? formatRelativeTimestamp(Date.parse(codexStatus.startedAt))
+                  : t("common.na")
+              }
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 14px;">
+          <button
+            class="btn"
+            ?disabled=${props.codexConnectLoading || !codexCanManage}
+            @click=${props.onStartCodexConnect}
+          >
+            ${props.codexConnectLoading ? "Working..." : "Connect Codex"}
+          </button>
+          <button
+            class="btn"
+            ?disabled=${
+              props.codexConnectLoading ||
+              !codexCanManage ||
+              !codexStatus ||
+              codexStatus.state === "disconnected"
+            }
+            @click=${props.onDisconnectCodex}
+          >
+            Disconnect
+          </button>
+        </div>
+        ${
+          props.codexConnectError
+            ? html`<div class="callout danger" style="margin-top: 14px;">${props.codexConnectError}</div>`
+            : html`<div class="callout" style="margin-top: 14px;">
+                ${
+                  codexCanManage
+                    ? codexStatus?.state === "connected"
+                      ? "Credentials are stored in service state and survive pod restarts."
+                      : "Owner can connect OpenAI Codex once in the browser. Credentials persist in service state."
+                    : "Owner access required to connect or disconnect OpenAI Codex for this service."
                 }
               </div>`
         }

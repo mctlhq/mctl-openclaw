@@ -91,6 +91,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "agents.files.list",
     "agents.files.get",
     "mctl.connect.status",
+    "codex.connect.status",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -117,6 +118,9 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "mctl.connect.start",
     "mctl.connect.complete",
     "mctl.connect.disconnect",
+    "codex.connect.start",
+    "codex.connect.complete",
+    "codex.connect.disconnect",
   ],
   [ADMIN_SCOPE]: [
     "channels.logout",

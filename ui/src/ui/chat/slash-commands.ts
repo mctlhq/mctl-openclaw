@@ -129,10 +129,10 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   {
     name: "connect",
     description: "Start a connector flow",
-    args: "<mctl>",
+    args: "<mctl|codex>",
     category: "tools",
     executeLocal: true,
-    argOptions: ["mctl"],
+    argOptions: ["mctl", "codex"],
   },
 
   // ── Agents ──

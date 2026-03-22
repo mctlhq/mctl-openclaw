@@ -111,6 +111,10 @@ const BASE_METHODS = [
   "chat.history",
   "chat.abort",
   "chat.send",
+  "codex.connect.status",
+  "codex.connect.start",
+  "codex.connect.complete",
+  "codex.connect.disconnect",
 ];
 
 export function listGatewayMethods(): string[] {
