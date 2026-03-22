@@ -360,20 +360,89 @@ describe("createDiscordMessageHandler queue behavior", () => {
     );
   });
 
+  it("still queues a duplicate retry while the first worker run is in flight after the dedupe TTL expires", async () => {
+    vi.useFakeTimers();
+    try {
+      preflightDiscordMessageMock.mockReset();
+      processDiscordMessageMock.mockReset();
+      preflightDiscordMessageMock.mockImplementation(
+        async (params: { data: { channel_id: string } }) =>
+          createPreflightContext(params.data.channel_id),
+      );
+
+      const firstRun = createDeferred();
+      processDiscordMessageMock
+        .mockImplementationOnce(async () => {
+          await firstRun.promise;
+          throw new Error("worker boom");
+        })
+        .mockResolvedValueOnce(undefined);
+
+      const params = createDiscordHandlerParams();
+      const handler = createDiscordMessageHandler(params);
+      const duplicate = createMessageData("m-worker-ttl-retry");
+
+      await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+      await vi.waitFor(() => {
+        expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+      });
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+      await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+
+      firstRun.resolve();
+
+      await vi.waitFor(() => {
+        expect(processDiscordMessageMock).toHaveBeenCalledTimes(2);
+      });
+      expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases the dedupe key when the worker drops a run after deactivation", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+    preflightDiscordMessageMock.mockImplementation(
+      async (params: { data: { channel_id: string } }) =>
+        createPreflightContext(params.data.channel_id),
+    );
+
+    const handler = createDiscordMessageHandler(createDiscordHandlerParams());
+    handler.deactivate();
+    const duplicate = createMessageData("m-dropped-retry");
+
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+    await expect(handler(duplicate as never, {} as never)).resolves.toBeUndefined();
+
+    await vi.waitFor(() => {
+      expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(2);
+    });
+    expect(processDiscordMessageMock).not.toHaveBeenCalled();
+  });
+
   it("applies explicit inbound worker timeout to queued runs so stalled runs do not block the queue", async () => {
     vi.useFakeTimers();
     try {
       preflightDiscordMessageMock.mockReset();
       processDiscordMessageMock.mockReset();
+      const firstRunAfterAbort = createDeferred();
 
       processDiscordMessageMock
         .mockImplementationOnce(async (ctx: { abortSignal?: AbortSignal }) => {
           await new Promise<void>((resolve) => {
             if (ctx.abortSignal?.aborted) {
-              resolve();
               return;
             }
-            ctx.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+            ctx.abortSignal?.addEventListener(
+              "abort",
+              () => {
+                void firstRunAfterAbort.promise.then(() => resolve());
+              },
+              { once: true },
+            );
           });
         })
         .mockImplementationOnce(async () => undefined);
@@ -392,17 +461,27 @@ describe("createDiscordMessageHandler queue behavior", () => {
       ).resolves.toBeUndefined();
 
       await vi.advanceTimersByTimeAsync(60);
-      await vi.waitFor(() => {
-        expect(processDiscordMessageMock).toHaveBeenCalledTimes(2);
-      });
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+
+      const retryCall = handler(createMessageData("m-1") as never, {} as never);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
 
       const firstCtx = processDiscordMessageMock.mock.calls[0]?.[0] as
         | { abortSignal?: AbortSignal }
         | undefined;
       expect(firstCtx?.abortSignal?.aborted).toBe(true);
+      firstRunAfterAbort.resolve();
+
+      await vi.waitFor(() => {
+        expect(processDiscordMessageMock).toHaveBeenCalledTimes(3);
+      });
+      expect(firstCtx?.abortSignal?.aborted).toBe(true);
       expect(params.runtime.error).toHaveBeenCalledWith(
         expect.stringContaining("discord inbound worker timed out after"),
       );
+      await expect(retryCall).resolves.toBeUndefined();
     } finally {
       vi.useRealTimers();
     }

@@ -19,6 +19,7 @@ export type DiscordInboundWorker = {
   enqueue: (
     job: DiscordInboundJob,
     callbacks?: {
+      onDropped?: () => void;
       onSuccess?: () => void;
       onError?: (error: unknown) => void;
     },
@@ -44,10 +45,10 @@ async function processDiscordInboundJob(params: {
   runtime: RuntimeEnv;
   lifecycleSignal?: AbortSignal;
   runTimeoutMs?: number;
-}) {
+}): Promise<{ timedOut: boolean }> {
   const timeoutMs = normalizeDiscordInboundWorkerTimeoutMs(params.runTimeoutMs);
   const contextSuffix = formatDiscordRunContextSuffix(params.job);
-  await runDiscordTaskWithTimeout({
+  const timedOut = await runDiscordTaskWithTimeout({
     run: async (abortSignal) => {
       await processDiscordMessage(materializeDiscordInboundJob(params.job, abortSignal));
     },
@@ -69,6 +70,7 @@ async function processDiscordInboundJob(params: {
       );
     },
   });
+  return { timedOut };
 }
 
 export function createDiscordInboundWorker(
@@ -85,19 +87,25 @@ export function createDiscordInboundWorker(
       void runQueue
         .enqueue(job.queueKey, async () => {
           if (!runState.isActive()) {
+            callbacks?.onDropped?.();
             return;
           }
           runState.onRunStart();
           try {
             if (!runState.isActive()) {
+              callbacks?.onDropped?.();
               return;
             }
-            await processDiscordInboundJob({
+            const result = await processDiscordInboundJob({
               job,
               runtime: params.runtime,
               lifecycleSignal: params.abortSignal,
               runTimeoutMs: params.runTimeoutMs,
             });
+            if (result.timedOut) {
+              callbacks?.onError?.(new Error("discord inbound worker timed out"));
+              return;
+            }
             callbacks?.onSuccess?.();
           } catch (error) {
             callbacks?.onError?.(error);

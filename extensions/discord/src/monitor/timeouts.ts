@@ -109,6 +109,7 @@ export async function runDiscordTaskWithTimeout(params: {
       timedOut = true;
       timeoutAbortController?.abort();
       params.onTimeout(params.timeoutMs);
+      await runPromise;
       return true;
     }
     return false;

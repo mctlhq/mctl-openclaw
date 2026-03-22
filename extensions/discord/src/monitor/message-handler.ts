@@ -191,6 +191,11 @@ export function createDiscordMessageHandler(
           return;
         }
         inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
+          onDropped: () => {
+            clearInFlightDedupeKeys(dedupeKeys);
+            releaseDedupeKeys(dedupeKeys);
+            clearPendingDuplicateDeliveries(dedupeKeys);
+          },
           onSuccess: () => {
             clearInFlightDedupeKeys(dedupeKeys);
             clearPendingDuplicateDeliveries(dedupeKeys);
@@ -250,6 +255,11 @@ export function createDiscordMessageHandler(
         }
       }
       inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
+        onDropped: () => {
+          clearInFlightDedupeKeys(dedupeKeys);
+          releaseDedupeKeys(dedupeKeys);
+          clearPendingDuplicateDeliveries(dedupeKeys);
+        },
         onSuccess: () => {
           clearInFlightDedupeKeys(dedupeKeys);
           clearPendingDuplicateDeliveries(dedupeKeys);
@@ -289,14 +299,15 @@ export function createDiscordMessageHandler(
         accountId: params.accountId,
         data,
       });
+      if (dedupeKey && inFlightDedupeKeys.has(dedupeKey)) {
+        pendingDuplicateDeliveries.set(dedupeKey, {
+          data,
+          client,
+          abortSignal: options?.abortSignal,
+        });
+        return;
+      }
       if (dedupeKey && recentInboundMessages.check(dedupeKey)) {
-        if (inFlightDedupeKeys.has(dedupeKey)) {
-          pendingDuplicateDeliveries.set(dedupeKey, {
-            data,
-            client,
-            abortSignal: options?.abortSignal,
-          });
-        }
         return;
       }
       if (dedupeKey) {
