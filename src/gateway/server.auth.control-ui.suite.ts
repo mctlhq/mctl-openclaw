@@ -285,6 +285,62 @@ export function registerControlUiAndPairingSuite(): void {
     });
   });
 
+  test("trusted-proxy owner role augments paired control ui device with owner scopes", async () => {
+    testState.gatewayAuth = {
+      mode: "trusted-proxy",
+      trustedProxy: {
+        userHeader: "x-forwarded-user",
+        roleHeader: "x-mctl-team-role",
+        requiredHeaders: ["x-forwarded-proto"],
+      },
+    };
+    await writeTrustedProxyControlUiConfig();
+    const seeded = await seedApprovedOperatorReadPairing({
+      identityPrefix: "openclaw-control-ui-owner-",
+      clientId: CONTROL_UI_CLIENT.id,
+      clientMode: CONTROL_UI_CLIENT.mode,
+      displayName: CONTROL_UI_CLIENT.id,
+      platform: CONTROL_UI_CLIENT.platform,
+    });
+
+    await withGatewayServer(async ({ port }) => {
+      const ws = await openWs(port, {
+        ...TRUSTED_PROXY_CONTROL_UI_HEADERS,
+        "x-mctl-team-role": "owner",
+      });
+      try {
+        const challengeNonce = await readConnectChallengeNonce(ws);
+        const { device } = await createSignedDevice({
+          scopes: ["operator.read"],
+          clientId: CONTROL_UI_CLIENT.id,
+          clientMode: CONTROL_UI_CLIENT.mode,
+          identityPath: seeded.identityPath,
+          nonce: String(challengeNonce),
+        });
+
+        const res = await connectReq(ws, {
+          skipDefaultAuth: true,
+          scopes: ["operator.read"],
+          device,
+          client: { ...CONTROL_UI_CLIENT },
+        });
+        expect(res.ok).toBe(true);
+
+        const codexStatus = await rpcReq(ws, "codex.connect.status");
+        expect(codexStatus.ok).toBe(true);
+        expect(
+          (codexStatus.payload as { canManage?: boolean; teamRole?: string } | undefined)
+            ?.canManage,
+        ).toBe(true);
+        expect(
+          (codexStatus.payload as { canManage?: boolean; teamRole?: string } | undefined)?.teamRole,
+        ).toBe("owner");
+      } finally {
+        ws.close();
+      }
+    });
+  });
+
   test("allows localhost control ui without device identity when insecure auth is enabled", async () => {
     testState.gatewayControlUi = { allowInsecureAuth: true };
     const { server, ws, prevToken } = await startServerWithClient("secret", {

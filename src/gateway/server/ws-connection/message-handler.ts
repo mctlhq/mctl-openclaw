@@ -108,7 +108,7 @@ function buildTrustedProxyScopes(authResult: GatewayAuthResult): string[] {
   }
   const role = typeof authResult.role === "string" ? authResult.role.trim().toLowerCase() : "";
   if (!role) {
-    return [READ_SCOPE];
+    return [];
   }
   if (role === "owner") {
     return [
@@ -125,6 +125,10 @@ function buildTrustedProxyScopes(authResult: GatewayAuthResult): string[] {
     return [`mctl.role:${role}`, READ_SCOPE, WRITE_SCOPE];
   }
   return [`mctl.role:${role}`, READ_SCOPE];
+}
+
+function mergeScopes(baseScopes: string[], extraScopes: string[]): string[] {
+  return Array.from(new Set([...baseScopes, ...extraScopes]));
 }
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
@@ -699,10 +703,8 @@ export function attachGatewayWsMessageHandler(params: {
           rejectUnauthorized(authResult);
           return;
         }
-        if (!device && authMethod === "trusted-proxy") {
-          scopes = buildTrustedProxyScopes(authResult);
-          connectParams.scopes = scopes;
-        }
+        const trustedProxyScopes =
+          authMethod === "trusted-proxy" ? buildTrustedProxyScopes(authResult) : [];
 
         const trustedProxyAuthOk = isTrustedProxyControlUiOperatorAuth({
           isControlUi,
@@ -876,6 +878,10 @@ export function attachGatewayWsMessageHandler(params: {
               : Array.isArray(paired.approvedScopes)
                 ? paired.approvedScopes
                 : [];
+            const effectivePairedScopes =
+              trustedProxyScopes.length > 0
+                ? mergeScopes(pairedScopes, trustedProxyScopes)
+                : pairedScopes;
             const allowedRoles = new Set(pairedRoles);
             if (allowedRoles.size === 0) {
               logUpgradeAudit("role-upgrade", pairedRoles, pairedScopes);
@@ -892,7 +898,7 @@ export function attachGatewayWsMessageHandler(params: {
             }
 
             if (scopes.length > 0) {
-              if (pairedScopes.length === 0) {
+              if (effectivePairedScopes.length === 0) {
                 logUpgradeAudit("scope-upgrade", pairedRoles, pairedScopes);
                 const ok = await requirePairing("scope-upgrade");
                 if (!ok) {
@@ -902,7 +908,7 @@ export function attachGatewayWsMessageHandler(params: {
                 const scopesAllowed = roleScopesAllow({
                   role,
                   requestedScopes: scopes,
-                  allowedScopes: pairedScopes,
+                  allowedScopes: effectivePairedScopes,
                 });
                 if (!scopesAllowed) {
                   logUpgradeAudit("scope-upgrade", pairedRoles, pairedScopes);
@@ -918,6 +924,11 @@ export function attachGatewayWsMessageHandler(params: {
             // but platform/device family must stay on the approved pairing record.
             await updatePairedDeviceMetadata(device.id, clientAccessMetadata);
           }
+        }
+
+        if (authMethod === "trusted-proxy") {
+          scopes = device ? mergeScopes(scopes, trustedProxyScopes) : trustedProxyScopes;
+          connectParams.scopes = scopes;
         }
 
         const deviceToken = device
