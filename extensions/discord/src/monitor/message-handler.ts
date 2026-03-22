@@ -81,6 +81,7 @@ export function createDiscordMessageHandler(
     maxSize: RECENT_DISCORD_MESSAGE_MAX,
   });
   const pendingDuplicateDeliveries = new Map<string, QueuedDiscordInboundDelivery>();
+  const inFlightDedupeKeys = new Set<string>();
   let replayHandler: DiscordMessageHandler | null = null;
   const uniqueDedupeKeys = (keys: Array<string | null | undefined>) => [
     ...new Set(keys.filter((key): key is string => Boolean(key))),
@@ -88,6 +89,13 @@ export function createDiscordMessageHandler(
   const releaseDedupeKeys = (keys: Array<string | null | undefined>) => {
     for (const key of keys) {
       recentInboundMessages.delete(key);
+    }
+  };
+  const clearInFlightDedupeKeys = (keys: Array<string | null | undefined>) => {
+    for (const key of keys) {
+      if (key) {
+        inFlightDedupeKeys.delete(key);
+      }
     }
   };
   const clearPendingDuplicateDeliveries = (keys: Array<string | null | undefined>) => {
@@ -161,6 +169,7 @@ export function createDiscordMessageHandler(
       const dedupeKeys = uniqueDedupeKeys(entries.map((entry) => entry.dedupeKey));
       const abortSignal = last.abortSignal;
       if (abortSignal?.aborted) {
+        clearInFlightDedupeKeys(dedupeKeys);
         clearPendingDuplicateDeliveries(dedupeKeys);
         return;
       }
@@ -174,14 +183,17 @@ export function createDiscordMessageHandler(
           client: last.client,
         });
         if (!ctx) {
+          clearInFlightDedupeKeys(dedupeKeys);
           clearPendingDuplicateDeliveries(dedupeKeys);
           return;
         }
         inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
           onSuccess: () => {
+            clearInFlightDedupeKeys(dedupeKeys);
             clearPendingDuplicateDeliveries(dedupeKeys);
           },
           onError: () => {
+            clearInFlightDedupeKeys(dedupeKeys);
             releaseDedupeKeys(dedupeKeys);
             replayPendingDuplicateDeliveries(dedupeKeys);
           },
@@ -215,6 +227,7 @@ export function createDiscordMessageHandler(
         client: last.client,
       });
       if (!ctx) {
+        clearInFlightDedupeKeys(dedupeKeys);
         clearPendingDuplicateDeliveries(dedupeKeys);
         return;
       }
@@ -233,9 +246,11 @@ export function createDiscordMessageHandler(
       }
       inboundWorker.enqueue(buildDiscordInboundJob(ctx), {
         onSuccess: () => {
+          clearInFlightDedupeKeys(dedupeKeys);
           clearPendingDuplicateDeliveries(dedupeKeys);
         },
         onError: () => {
+          clearInFlightDedupeKeys(dedupeKeys);
           releaseDedupeKeys(dedupeKeys);
           replayPendingDuplicateDeliveries(dedupeKeys);
         },
@@ -243,6 +258,7 @@ export function createDiscordMessageHandler(
     },
     onError: (err, entries) => {
       const dedupeKeys = uniqueDedupeKeys(entries.map((entry) => entry.dedupeKey));
+      clearInFlightDedupeKeys(dedupeKeys);
       releaseDedupeKeys(dedupeKeys);
       replayPendingDuplicateDeliveries(dedupeKeys);
       params.runtime.error?.(danger(`discord debounce flush failed: ${String(err)}`));
@@ -269,12 +285,17 @@ export function createDiscordMessageHandler(
         data,
       });
       if (dedupeKey && recentInboundMessages.check(dedupeKey)) {
-        pendingDuplicateDeliveries.set(dedupeKey, {
-          data,
-          client,
-          abortSignal: options?.abortSignal,
-        });
+        if (inFlightDedupeKeys.has(dedupeKey)) {
+          pendingDuplicateDeliveries.set(dedupeKey, {
+            data,
+            client,
+            abortSignal: options?.abortSignal,
+          });
+        }
         return;
+      }
+      if (dedupeKey) {
+        inFlightDedupeKeys.add(dedupeKey);
       }
 
       await debouncer.enqueue({
@@ -284,6 +305,7 @@ export function createDiscordMessageHandler(
         dedupeKey,
       });
     } catch (err) {
+      clearInFlightDedupeKeys([dedupeKey]);
       releaseDedupeKeys([dedupeKey]);
       params.runtime.error?.(danger(`handler failed: ${String(err)}`));
     }
