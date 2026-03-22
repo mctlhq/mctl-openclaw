@@ -121,6 +121,47 @@ describe("resolveApiKeyForProfile openai-codex refresh fallback", () => {
     expect(refreshProviderOAuthCredentialWithPluginMock).toHaveBeenCalledTimes(1);
   });
 
+  it("persists plugin-refreshed openai-codex credentials back to auth-profiles.json", async () => {
+    const profileId = "openai-codex:default";
+    const refreshedAccess = "refreshed-access-token";
+    const refreshedRefresh = "refreshed-refresh-token";
+    const refreshedExpires = Date.now() + 3_600_000;
+    refreshProviderOAuthCredentialWithPluginMock.mockResolvedValueOnce({
+      type: "oauth",
+      provider: "openai-codex",
+      access: refreshedAccess,
+      refresh: refreshedRefresh,
+      expires: refreshedExpires,
+    });
+    saveAuthProfileStore(
+      createExpiredOauthStore({
+        profileId,
+        provider: "openai-codex",
+      }),
+      agentDir,
+    );
+
+    const result = await resolveApiKeyForProfile({
+      store: ensureAuthProfileStore(agentDir),
+      profileId,
+      agentDir,
+    });
+
+    expect(result).toEqual({
+      apiKey: refreshedAccess,
+      provider: "openai-codex",
+      email: undefined,
+    });
+    const savedStore = ensureAuthProfileStore(agentDir);
+    expect(savedStore.profiles[profileId]).toMatchObject({
+      type: "oauth",
+      provider: "openai-codex",
+      access: refreshedAccess,
+      refresh: refreshedRefresh,
+      expires: refreshedExpires,
+    });
+  });
+
   it("keeps throwing for non-codex providers on the same refresh error", async () => {
     const profileId = "anthropic:default";
     saveAuthProfileStore(
