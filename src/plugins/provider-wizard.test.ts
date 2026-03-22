@@ -202,6 +202,50 @@ describe("provider wizard boundaries", () => {
     ]);
   });
 
+  it("reuses provider resolution across wizard consumers for the same config and env", () => {
+    const provider = makeProvider({
+      id: "sglang",
+      label: "SGLang",
+      auth: [{ id: "server", label: "Server", kind: "custom", run: vi.fn() }],
+      wizard: {
+        setup: {
+          choiceLabel: "SGLang setup",
+          groupId: "sglang",
+          groupLabel: "SGLang",
+        },
+        modelPicker: {
+          label: "SGLang server",
+          methodId: "server",
+        },
+      },
+    });
+    const config = {};
+    const env = { OPENCLAW_HOME: "/tmp/openclaw-home" } as NodeJS.ProcessEnv;
+    resolvePluginProviders.mockReturnValue([provider]);
+
+    expect(
+      resolveProviderWizardOptions({
+        config,
+        workspaceDir: "/tmp/workspace",
+        env,
+      }),
+    ).toHaveLength(1);
+    expect(
+      resolveProviderModelPickerEntries({
+        config,
+        workspaceDir: "/tmp/workspace",
+        env,
+      }),
+    ).toHaveLength(1);
+
+    expect(resolvePluginProviders).toHaveBeenCalledTimes(1);
+    expect(resolvePluginProviders).toHaveBeenCalledWith({
+      config,
+      workspaceDir: "/tmp/workspace",
+      env,
+    });
+  });
+
   it("routes model-selected hooks only to the matching provider", async () => {
     const matchingHook = vi.fn(async () => {});
     const otherHook = vi.fn(async () => {});

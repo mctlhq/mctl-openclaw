@@ -12,6 +12,10 @@ import type {
 } from "./types.js";
 
 export const PROVIDER_PLUGIN_CHOICE_PREFIX = "provider-plugin:";
+const providerWizardCache = new WeakMap<
+  OpenClawConfig,
+  WeakMap<NodeJS.ProcessEnv, Map<string, ProviderPlugin[]>>
+>();
 
 export type ProviderWizardOption = {
   value: string;
@@ -97,12 +101,47 @@ export function buildProviderPluginMethodChoice(providerId: string, methodId: st
   return `${PROVIDER_PLUGIN_CHOICE_PREFIX}${providerId.trim()}:${methodId.trim()}`;
 }
 
+function resolveProviderWizardProviders(params: {
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): ProviderPlugin[] {
+  if (!params.config) {
+    return resolvePluginProviders(params);
+  }
+  const env = params.env ?? process.env;
+  const cacheKey = params.workspaceDir ?? "";
+  const configCache = providerWizardCache.get(params.config);
+  const envCache = configCache?.get(env);
+  const cached = envCache?.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  const providers = resolvePluginProviders({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    env,
+  });
+  let nextConfigCache = configCache;
+  if (!nextConfigCache) {
+    nextConfigCache = new WeakMap<NodeJS.ProcessEnv, Map<string, ProviderPlugin[]>>();
+    providerWizardCache.set(params.config, nextConfigCache);
+  }
+  let nextEnvCache = nextConfigCache.get(env);
+  if (!nextEnvCache) {
+    nextEnvCache = new Map<string, ProviderPlugin[]>();
+    nextConfigCache.set(env, nextEnvCache);
+  }
+  nextEnvCache.set(cacheKey, providers);
+  return providers;
+}
+
 export function resolveProviderWizardOptions(params: {
   config?: OpenClawConfig;
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
 }): ProviderWizardOption[] {
-  const providers = resolvePluginProviders(params);
+  const providers = resolveProviderWizardProviders(params);
   const options: ProviderWizardOption[] = [];
 
   for (const provider of providers) {
@@ -171,7 +210,7 @@ export function resolveProviderModelPickerEntries(params: {
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
 }): ProviderModelPickerEntry[] {
-  const providers = resolvePluginProviders(params);
+  const providers = resolveProviderWizardProviders(params);
   const entries: ProviderModelPickerEntry[] = [];
 
   for (const provider of providers) {
@@ -259,7 +298,7 @@ export async function runProviderModelSelectedHook(params: {
     return;
   }
 
-  const providers = resolvePluginProviders({
+  const providers = resolveProviderWizardProviders({
     config: params.config,
     workspaceDir: params.workspaceDir,
     env: params.env,

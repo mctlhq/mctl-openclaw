@@ -93,6 +93,31 @@ describe("resolvePluginWebSearchProviders", () => {
     expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
   });
 
+  it("memoizes snapshot provider resolution for the same config and env", () => {
+    const config = {
+      plugins: {
+        allow: ["brave"],
+      },
+    };
+    const env = { OPENCLAW_HOME: "/tmp/openclaw-home" } as NodeJS.ProcessEnv;
+
+    const first = resolvePluginWebSearchProviders({
+      config,
+      env,
+      bundledAllowlistCompat: true,
+      workspaceDir: "/tmp/workspace",
+    });
+    const second = resolvePluginWebSearchProviders({
+      config,
+      env,
+      bundledAllowlistCompat: true,
+      workspaceDir: "/tmp/workspace",
+    });
+
+    expect(second).toBe(first);
+    expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("prefers the active plugin registry for runtime resolution", () => {
     const registry = createEmptyPluginRegistry();
     registry.webSearchProviders.push({
