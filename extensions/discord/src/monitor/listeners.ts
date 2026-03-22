@@ -142,32 +142,34 @@ async function runDiscordListenerWithSlowLog(params: {
   let timedOut = false;
 
   try {
-    timedOut = await runDiscordTaskWithTimeout({
-      run: params.run,
-      timeoutMs,
-      onTimeout: (resolvedTimeoutMs) => {
-        logger.error(
-          danger(
-            `discord handler timed out after ${formatDurationSeconds(resolvedTimeoutMs, {
-              decimals: 1,
-              unit: "seconds",
-            })}${formatListenerContextSuffix(params.context)}`,
-          ),
-        );
-      },
-      onAbortAfterTimeout: () => {
-        logger.warn(
-          `discord handler canceled after timeout${formatListenerContextSuffix(params.context)}`,
-        );
-      },
-      onErrorAfterTimeout: (err) => {
-        logger.error(
-          danger(
-            `discord handler failed after timeout: ${String(err)}${formatListenerContextSuffix(params.context)}`,
-          ),
-        );
-      },
-    });
+    timedOut = (
+      await runDiscordTaskWithTimeout({
+        run: params.run,
+        timeoutMs,
+        onTimeout: (resolvedTimeoutMs) => {
+          logger.error(
+            danger(
+              `discord handler timed out after ${formatDurationSeconds(resolvedTimeoutMs, {
+                decimals: 1,
+                unit: "seconds",
+              })}${formatListenerContextSuffix(params.context)}`,
+            ),
+          );
+        },
+        onAbortAfterTimeout: () => {
+          logger.warn(
+            `discord handler canceled after timeout${formatListenerContextSuffix(params.context)}`,
+          );
+        },
+        onErrorAfterTimeout: (err) => {
+          logger.error(
+            danger(
+              `discord handler failed after timeout: ${String(err)}${formatListenerContextSuffix(params.context)}`,
+            ),
+          );
+        },
+      })
+    ).timedOut;
     if (timedOut) {
       return;
     }

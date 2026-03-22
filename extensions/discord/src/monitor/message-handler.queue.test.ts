@@ -484,6 +484,7 @@ describe("createDiscordMessageHandler queue behavior", () => {
             );
           });
         })
+        .mockImplementationOnce(async () => undefined)
         .mockImplementationOnce(async () => undefined);
       const params = createDiscordHandlerParams({ workerRunTimeoutMs: 50 });
       preflightDiscordMessageMock.mockImplementation(
@@ -500,12 +501,14 @@ describe("createDiscordMessageHandler queue behavior", () => {
       ).resolves.toBeUndefined();
 
       await vi.advanceTimersByTimeAsync(60);
-      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(processDiscordMessageMock).toHaveBeenCalledTimes(2);
+      });
 
       const retryCall = handler(createMessageData("m-1") as never, {} as never);
       await Promise.resolve();
       await Promise.resolve();
-      expect(processDiscordMessageMock).toHaveBeenCalledTimes(1);
+      expect(processDiscordMessageMock).toHaveBeenCalledTimes(2);
 
       const firstCtx = processDiscordMessageMock.mock.calls[0]?.[0] as
         | { abortSignal?: AbortSignal }

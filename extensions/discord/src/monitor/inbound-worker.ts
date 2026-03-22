@@ -20,6 +20,7 @@ export type DiscordInboundWorker = {
     job: DiscordInboundJob,
     callbacks?: {
       onDropped?: () => void;
+      onTimeout?: (settledAfterTimeout: Promise<void>) => void;
       onSuccess?: () => void;
       onError?: (error: unknown) => void;
     },
@@ -45,10 +46,10 @@ async function processDiscordInboundJob(params: {
   runtime: RuntimeEnv;
   lifecycleSignal?: AbortSignal;
   runTimeoutMs?: number;
-}): Promise<{ timedOut: boolean }> {
+}): Promise<{ timedOut: boolean; settledAfterTimeout?: Promise<void> }> {
   const timeoutMs = normalizeDiscordInboundWorkerTimeoutMs(params.runTimeoutMs);
   const contextSuffix = formatDiscordRunContextSuffix(params.job);
-  const timedOut = await runDiscordTaskWithTimeout({
+  const result = await runDiscordTaskWithTimeout({
     run: async (abortSignal) => {
       await processDiscordMessage(materializeDiscordInboundJob(params.job, abortSignal));
     },
@@ -70,7 +71,7 @@ async function processDiscordInboundJob(params: {
       );
     },
   });
-  return { timedOut };
+  return result;
 }
 
 export function createDiscordInboundWorker(
@@ -103,7 +104,7 @@ export function createDiscordInboundWorker(
               runTimeoutMs: params.runTimeoutMs,
             });
             if (result.timedOut) {
-              callbacks?.onError?.(new Error("discord inbound worker timed out"));
+              callbacks?.onTimeout?.(result.settledAfterTimeout ?? Promise.resolve());
               return;
             }
             callbacks?.onSuccess?.();
