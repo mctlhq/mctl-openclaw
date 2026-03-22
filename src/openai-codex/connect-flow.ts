@@ -5,6 +5,7 @@ const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const DEFAULT_SCOPE = "openid profile email offline_access";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
+const DEFAULT_PORTAL_CALLBACK_URL = "https://app.mctl.ai/api/oidc-provider/openai-codex/callback";
 
 function createState(): string {
   return crypto.randomUUID().replace(/-/g, "");
@@ -49,6 +50,7 @@ export type OpenAICodexPendingConnect = {
   authorizeUrl: string;
   state: string;
   codeVerifier: string;
+  redirectUri: string;
 };
 
 export type OpenAICodexOAuthCredentials = {
@@ -58,16 +60,55 @@ export type OpenAICodexOAuthCredentials = {
   accountId: string;
 };
 
+type OpenAICodexStateEnvelope = {
+  nonce: string;
+  returnTo: string;
+};
+
+function resolvePortalCallbackUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const value = env.OPENCLAW_OPENAI_CODEX_PORTAL_CALLBACK_URL?.trim();
+  if (value) {
+    return value;
+  }
+  return DEFAULT_PORTAL_CALLBACK_URL;
+}
+
+function encodeStateEnvelope(envelope: OpenAICodexStateEnvelope): string {
+  return toBase64Url(Buffer.from(JSON.stringify(envelope), "utf8"));
+}
+
+export function decodeOpenAICodexStateEnvelope(
+  encodedState: string,
+): OpenAICodexStateEnvelope | null {
+  try {
+    const json = Buffer.from(encodedState, "base64url").toString("utf8");
+    const parsed = JSON.parse(json) as Partial<OpenAICodexStateEnvelope>;
+    const nonce = typeof parsed.nonce === "string" ? parsed.nonce.trim() : "";
+    const returnTo = typeof parsed.returnTo === "string" ? parsed.returnTo.trim() : "";
+    if (!nonce || !returnTo) {
+      return null;
+    }
+    return { nonce, returnTo };
+  } catch {
+    return null;
+  }
+}
+
 export async function startOpenAICodexAuthorizationFlow(params: {
-  redirectUri: string;
+  browserReturnTo: string;
   originator?: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<OpenAICodexPendingConnect> {
   const { verifier, challenge } = await generatePKCE();
-  const state = createState();
+  const redirectUri = resolvePortalCallbackUrl(params.env);
+  const state = encodeStateEnvelope({
+    nonce: createState(),
+    returnTo: params.browserReturnTo,
+  });
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", CLIENT_ID);
-  url.searchParams.set("redirect_uri", params.redirectUri);
+  url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("scope", DEFAULT_SCOPE);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
@@ -79,6 +120,7 @@ export async function startOpenAICodexAuthorizationFlow(params: {
     authorizeUrl: url.toString(),
     state,
     codeVerifier: verifier,
+    redirectUri,
   };
 }
 

@@ -48,8 +48,8 @@ export const codexHandlers: GatewayRequestHandlers = {
       respond(false, undefined, unauthorized);
       return;
     }
-    const redirectUri = readRedirectUri(params);
-    if (!redirectUri) {
+    const browserReturnTo = readRedirectUri(params);
+    if (!browserReturnTo) {
       respond(
         false,
         undefined,
@@ -57,10 +57,10 @@ export const codexHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const flow = await startOpenAICodexAuthorizationFlow({ redirectUri });
+    const flow = await startOpenAICodexAuthorizationFlow({ browserReturnTo });
     await writeOpenAICodexPendingConnect({
       version: 1,
-      redirectUri,
+      redirectUri: flow.redirectUri,
       state: flow.state,
       codeVerifier: flow.codeVerifier,
       startedAt: new Date().toISOString(),
