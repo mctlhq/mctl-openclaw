@@ -8,6 +8,7 @@ const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
 const DIGEST_PINNED_DOCKERFILES = [
   "Dockerfile",
+  "Dockerfile.whisper-cache-builder",
   "Dockerfile.sandbox",
   "Dockerfile.sandbox-browser",
   "scripts/docker/cleanup-smoke/Dockerfile",
