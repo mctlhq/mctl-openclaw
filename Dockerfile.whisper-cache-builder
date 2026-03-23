@@ -51,9 +51,12 @@ RUN set -eux; \
       -DGGML_AVX512_BF16=OFF; \
     make -C /tmp/whispersrc/build whisper-cli -j"$(nproc)"; \
     cp /tmp/whispersrc/build/bin/whisper-cli "${WHISPER_ASSETS_DIR}/whisper-cli"; \
+    cp "$(find /tmp/whispersrc/build -type f -name 'libwhisper.so.1' | head -n1)" "${WHISPER_ASSETS_DIR}/libwhisper.so.1"; \
+    cp "$(find /tmp/whispersrc/build -type f -name 'libggml.so.0' | head -n1)" "${WHISPER_ASSETS_DIR}/libggml.so.0"; \
     chmod +x "${WHISPER_ASSETS_DIR}/whisper-cli"; \
     printf '%s\n' \
       '#!/bin/sh' \
+      'export LD_LIBRARY_PATH=/opt/whisper-assets${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}' \
       'TMP_WAV=$(mktemp /tmp/whisper_XXXXXX.wav)' \
       '/opt/whisper-assets/ffmpeg -i "$1" -ar 16000 -ac 1 -f wav "$TMP_WAV" -y 2>/dev/null' \
       '/opt/whisper-assets/whisper-cli -m /opt/whisper-assets/ggml-tiny.bin -f "$TMP_WAV" --language auto --no-timestamps 2>/dev/null' \
