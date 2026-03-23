@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
+import { clearRuntimeAuthProfileStoreSnapshots } from "../agents/auth-profiles.js";
 import { resolveOpenClawAgentDir } from "../agents/agent-paths.js";
 import { setAuthProfileOrder } from "../agents/auth-profiles/profiles.js";
 import { upsertAuthProfile } from "../agents/auth-profiles/profiles.js";
@@ -271,5 +272,10 @@ export async function writeOAuthCredentials(
       }
     }
   }
+
+  // Secrets runtime may keep in-memory auth store snapshots. OAuth onboarding
+  // mutates auth-profiles.json live, so clear those snapshots and force the next
+  // auth resolution to reload from disk.
+  clearRuntimeAuthProfileStoreSnapshots();
   return profileId;
 }

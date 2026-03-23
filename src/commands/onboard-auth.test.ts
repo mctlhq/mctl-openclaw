@@ -37,6 +37,7 @@ import { applyXiaomiConfig, applyXiaomiProviderConfig } from "../../extensions/x
 import { applyZaiConfig, applyZaiProviderConfig } from "../../extensions/zai/onboard.js";
 import {
   clearRuntimeAuthProfileStoreSnapshots,
+  ensureAuthProfileStore,
   replaceRuntimeAuthProfileStoreSnapshots,
 } from "../agents/auth-profiles.js";
 import { SYNTHETIC_DEFAULT_MODEL_ID } from "../agents/synthetic-models.js";
@@ -283,6 +284,14 @@ describe("writeOAuthCredentials", () => {
       provider: "openai-codex",
     });
     expect(parsed.order?.["openai-codex"]).toEqual(["openai-codex:default"]);
+
+    const reloaded = ensureAuthProfileStore(env.agentDir);
+    expect(reloaded.profiles["openai-codex:default"]).toMatchObject({
+      refresh: "refresh-stale",
+      access: "access-stale",
+      type: "oauth",
+      provider: "openai-codex",
+    });
   });
 
   it("syncs siblings from explicit agentDir outside OPENCLAW_STATE_DIR", async () => {
