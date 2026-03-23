@@ -512,6 +512,7 @@ export function renderOverview(props: OverviewProps) {
         <div class="row" style="margin-top: 14px;">
           <button
             class="btn"
+            type="button"
             ?disabled=${props.codexConnectLoading || !codexCanManage}
             @click=${props.onStartCodexConnect}
           >
@@ -519,6 +520,7 @@ export function renderOverview(props: OverviewProps) {
           </button>
           <button
             class="btn"
+            type="button"
             ?disabled=${
               props.codexConnectLoading ||
               !codexCanManage ||
@@ -546,6 +548,7 @@ export function renderOverview(props: OverviewProps) {
                   <div class="row">
                     <button
                       class="btn"
+                      type="button"
                       ?disabled=${props.codexConnectLoading || !props.codexManualInput.trim()}
                       @click=${props.onSubmitCodexManualInput}
                     >
