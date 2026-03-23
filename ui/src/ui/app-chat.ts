@@ -437,12 +437,20 @@ async function connectCodexFromChat(host: ChatHost, args: string) {
     return;
   }
   try {
-    const authorizeUrl = await requestCodexConnectAuthorizeUrl({
+    const { authorizeUrl, completionMode } = await requestCodexConnectAuthorizeUrl({
       client: host.client,
       basePath: host.basePath,
     });
     const opened =
-      typeof window !== "undefined" ? window.open(authorizeUrl, "_blank", "noopener") : null;
+      typeof window !== "undefined" && completionMode === "manual_input"
+        ? window.open(authorizeUrl, "_blank", "noopener")
+        : null;
+    if (typeof window !== "undefined" && completionMode === "browser_callback") {
+      window.location.assign(authorizeUrl);
+      injectCommandResult(host, "Starting OpenAI Codex browser authorization...");
+      scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+      return;
+    }
     injectCommandResult(
       host,
       opened

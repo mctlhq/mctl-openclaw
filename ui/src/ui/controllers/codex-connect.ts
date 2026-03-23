@@ -1,6 +1,9 @@
 import type { OpenClawApp } from "../app.ts";
 import type { OpenAICodexConnectStatus } from "../types.ts";
 
+const CODEX_CALLBACK_MARKER = "codex_oauth";
+type CodexCompletionMode = "manual_input" | "browser_callback";
+
 type CodexConnectState = {
   client: { request: <T = unknown>(method: string, params?: unknown) => Promise<T> } | null;
   connected: boolean;
@@ -8,6 +11,7 @@ type CodexConnectState = {
   codexConnectLoading: boolean;
   codexConnectStatus: OpenAICodexConnectStatus | null;
   codexConnectError: string | null;
+  codexCompletionMode: CodexCompletionMode | null;
   codexManualInput: string;
   codexCallbackCode: string | null;
   codexCallbackState: string | null;
@@ -24,25 +28,49 @@ function normalizeBasePath(basePath: string): string {
 
 function buildOverviewUrl(basePath: string): string {
   const resolvedBasePath = normalizeBasePath(basePath);
-  return new URL(`${resolvedBasePath}/overview`, window.location.origin).toString();
+  const url = new URL(`${resolvedBasePath}/overview`, window.location.origin);
+  url.searchParams.set(CODEX_CALLBACK_MARKER, "1");
+  return url.toString();
 }
 
 export async function requestCodexConnectAuthorizeUrl(params: {
   client: { request: <T = unknown>(method: string, params?: unknown) => Promise<T> };
   basePath: string;
-}): Promise<string> {
-  const res = await params.client.request<{ authorizeUrl?: string }>("codex.connect.start", {
-    redirectUri: buildOverviewUrl(params.basePath),
-  });
+}): Promise<{ authorizeUrl: string; completionMode: CodexCompletionMode }> {
+  const res = await params.client.request<{ authorizeUrl?: string; completionMode?: unknown }>(
+    "codex.connect.start",
+    {
+      redirectUri: buildOverviewUrl(params.basePath),
+    },
+  );
   const authorizeUrl = typeof res.authorizeUrl === "string" ? res.authorizeUrl.trim() : "";
   if (!authorizeUrl) {
     throw new Error("missing authorizeUrl");
   }
-  return authorizeUrl;
+  const completionMode =
+    res.completionMode === "browser_callback" ? "browser_callback" : "manual_input";
+  return { authorizeUrl, completionMode };
 }
 
 export function captureCodexConnectCallbackFromUrl(state: CodexConnectState) {
-  void state;
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = new URL(window.location.href);
+  if (url.searchParams.get(CODEX_CALLBACK_MARKER) !== "1") {
+    return;
+  }
+  state.codexCallbackCode = url.searchParams.get("code")?.trim() || null;
+  state.codexCallbackState = url.searchParams.get("state")?.trim() || null;
+  const error = url.searchParams.get("error")?.trim() || null;
+  const errorDescription = url.searchParams.get("error_description")?.trim() || null;
+  state.codexCallbackError = errorDescription ?? error;
+  url.searchParams.delete(CODEX_CALLBACK_MARKER);
+  url.searchParams.delete("code");
+  url.searchParams.delete("state");
+  url.searchParams.delete("error");
+  url.searchParams.delete("error_description");
+  window.history.replaceState({}, "", url.toString());
 }
 
 export async function loadCodexConnectStatus(state: CodexConnectState) {
@@ -54,6 +82,7 @@ export async function loadCodexConnectStatus(state: CodexConnectState) {
       "codex.connect.status",
       {},
     );
+    state.codexCompletionMode = state.codexConnectStatus.completionMode;
     state.codexConnectError = null;
   } catch (err) {
     state.codexConnectError = String(err);
@@ -67,10 +96,16 @@ export async function startCodexConnect(state: CodexConnectState) {
   state.codexConnectLoading = true;
   state.codexConnectError = null;
   try {
-    const authorizeUrl = await requestCodexConnectAuthorizeUrl({
+    const { authorizeUrl, completionMode } = await requestCodexConnectAuthorizeUrl({
       client: state.client,
       basePath: state.basePath,
     });
+    state.codexCompletionMode = completionMode;
+    await loadCodexConnectStatus(state);
+    if (completionMode === "browser_callback") {
+      window.location.assign(authorizeUrl);
+      return;
+    }
     const popup = window.open(authorizeUrl, "_blank", "noopener,noreferrer");
     if (!popup) {
       window.location.assign(authorizeUrl);
@@ -103,6 +138,7 @@ export async function submitCodexManualInput(state: CodexConnectState) {
       "codex.connect.complete",
       { input },
     );
+    state.codexCompletionMode = state.codexConnectStatus.completionMode;
     state.codexConnectError = null;
     state.codexManualInput = "";
   } catch (err) {
@@ -123,6 +159,7 @@ export async function disconnectCodex(state: CodexConnectState) {
       "codex.connect.disconnect",
       {},
     );
+    state.codexCompletionMode = state.codexConnectStatus.completionMode;
     state.codexConnectError = null;
   } catch (err) {
     state.codexConnectError = String(err);
@@ -153,6 +190,7 @@ export async function maybeCompleteCodexConnect(state: CodexConnectState) {
         state: state.codexCallbackState,
       },
     );
+    state.codexCompletionMode = state.codexConnectStatus.completionMode;
     state.codexConnectError = null;
   } catch (err) {
     state.codexConnectError = String(err);

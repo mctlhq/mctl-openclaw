@@ -305,6 +305,14 @@ export type AppViewState = {
     overviewShowGatewayPassword: boolean;
     overviewLogLines: string[];
     overviewLogCursor: number;
+    mctlConnectLoading: boolean;
+    mctlConnectStatus: import("./types.ts").MctlConnectStatus | null;
+    mctlConnectError: string | null;
+    codexConnectLoading: boolean;
+    codexConnectStatus: import("./types.ts").OpenAICodexConnectStatus | null;
+    codexConnectError: string | null;
+    codexCompletionMode: "manual_input" | "browser_callback" | null;
+    codexManualInput: string;
     client: GatewayBrowserClient | null;
     refreshSessionsAfterChat: Set<string>;
     connect: () => void;
@@ -316,6 +324,12 @@ export type AppViewState = {
     loadOverview: () => Promise<void>;
     loadAssistantIdentity: () => Promise<void>;
     loadCron: () => Promise<void>;
+    startMctlConnect: () => Promise<void>;
+    disconnectMctl: () => Promise<void>;
+    startCodexConnect: () => Promise<void>;
+    updateCodexManualInput: (next: string) => void;
+    submitCodexManualInput: () => Promise<void>;
+    disconnectCodex: () => Promise<void>;
     handleWhatsAppStart: (force: boolean) => Promise<void>;
     handleWhatsAppWait: () => Promise<void>;
     handleWhatsAppLogout: () => Promise<void>;

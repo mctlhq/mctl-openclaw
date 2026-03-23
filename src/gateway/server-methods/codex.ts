@@ -1,5 +1,6 @@
 import {
   exchangeOpenAICodexAuthorizationCode,
+  resolveOpenAICodexClientIdForRedirectUri,
   startOpenAICodexAuthorizationFlow,
 } from "../../openai-codex/connect-flow.js";
 import {
@@ -68,7 +69,10 @@ function parseAuthorizationInput(
 
 function requireOwnerScope(client: { connect?: { scopes?: string[] } } | null) {
   if (!canManageOpenAICodex(client)) {
-    return errorShape(ErrorCodes.UNAUTHORIZED, "OpenAI Codex connect requires tenant owner access");
+    return errorShape(
+      ErrorCodes.INVALID_REQUEST,
+      "OpenAI Codex connect requires tenant owner access",
+    );
   }
   return null;
 }
@@ -108,10 +112,12 @@ export const codexHandlers: GatewayRequestHandlers = {
     }
     const flow = await startOpenAICodexAuthorizationFlow({ browserReturnTo });
     await writeOpenAICodexPendingConnect({
-      version: 2,
+      version: 3,
       redirectUri: flow.redirectUri,
       state: flow.state,
       codeVerifier: flow.codeVerifier,
+      clientId: flow.clientId,
+      completionMode: flow.completionMode,
       startedAt: new Date().toISOString(),
       requestedBy:
         typeof client?.connect?.client?.displayName === "string"
@@ -124,9 +130,17 @@ export const codexHandlers: GatewayRequestHandlers = {
     });
     const authorizeHost = new URL(flow.authorizeUrl).host;
     context.logGateway.info(
-      `codex-connect: start authorizeHost=${authorizeHost} redirectUri=${flow.redirectUri} browserReturnTo=${browserReturnTo}`,
+      `codex-connect: start authorizeHost=${authorizeHost} redirectUri=${flow.redirectUri} mode=${flow.completionMode} browserReturnTo=${browserReturnTo}`,
     );
-    respond(true, { authorizeUrl: flow.authorizeUrl, state: flow.state }, undefined);
+    respond(
+      true,
+      {
+        authorizeUrl: flow.authorizeUrl,
+        state: flow.state,
+        completionMode: flow.completionMode,
+      },
+      undefined,
+    );
   },
   "codex.connect.complete": async ({ params, client, context, respond }) => {
     const unauthorized = requireOwnerScope(client);
@@ -177,6 +191,9 @@ export const codexHandlers: GatewayRequestHandlers = {
         code,
         codeVerifier: pending.codeVerifier,
         redirectUri: pending.redirectUri,
+        clientId:
+          pending.clientId ||
+          resolveOpenAICodexClientIdForRedirectUri({ redirectUri: pending.redirectUri }),
       });
       await writeOAuthCredentials("openai-codex", credentials);
       await deleteOpenAICodexPendingConnect();

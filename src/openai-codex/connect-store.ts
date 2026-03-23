@@ -10,6 +10,7 @@ const OPENAI_CODEX_AUTH_SUBDIR = path.join("oauth-connect", "openai-codex");
 const OPENAI_CODEX_PENDING_FILE = "pending-connect.json";
 export const MCTL_OWNER_SCOPE = "mctl.owner";
 export const OPENAI_CODEX_PENDING_TIMEOUT_MS = 10 * 60 * 1000;
+export type OpenAICodexConnectCompletionMode = "manual_input" | "browser_callback";
 
 export type OpenAICodexPendingStage =
   | "browser_flow_started"
@@ -18,10 +19,12 @@ export type OpenAICodexPendingStage =
   | "failed_token_exchange";
 
 export type OpenAICodexPendingRecord = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   redirectUri: string;
   state: string;
   codeVerifier: string;
+  clientId?: string | null;
+  completionMode?: OpenAICodexConnectCompletionMode | null;
   startedAt: string;
   requestedBy: string | null;
   stage?: OpenAICodexPendingStage;
@@ -51,6 +54,7 @@ export type OpenAICodexConnectStatus = {
   requestedBy: string | null;
   canManage: boolean;
   teamRole: string | null;
+  completionMode: OpenAICodexConnectCompletionMode;
 };
 
 export type OpenAICodexPendingLifecycle = {
@@ -90,6 +94,36 @@ function resolveAccountLabel(profileId: string, credential: OAuthCredential): st
   return null;
 }
 
+function isBrowserCallbackRedirectUri(redirectUri: string | null | undefined): boolean {
+  if (!redirectUri) {
+    return false;
+  }
+  try {
+    const parsed = new URL(redirectUri);
+    const host = parsed.hostname.toLowerCase();
+    return host !== "localhost" && host !== "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function resolveDefaultCompletionMode(
+  env: NodeJS.ProcessEnv = process.env,
+): OpenAICodexConnectCompletionMode {
+  const portalClientId = env.OPENCLAW_OPENAI_CODEX_CLIENT_ID?.trim();
+  const portalCallback = env.OPENCLAW_OPENAI_CODEX_PORTAL_CALLBACK_URL?.trim();
+  return portalClientId && portalCallback ? "browser_callback" : "manual_input";
+}
+
+function resolvePendingCompletionMode(
+  pending: Pick<OpenAICodexPendingRecord, "completionMode" | "redirectUri">,
+): OpenAICodexConnectCompletionMode {
+  if (pending.completionMode === "browser_callback" || pending.completionMode === "manual_input") {
+    return pending.completionMode;
+  }
+  return isBrowserCallbackRedirectUri(pending.redirectUri) ? "browser_callback" : "manual_input";
+}
+
 export function canManageOpenAICodex(client: { connect?: { scopes?: string[] } } | null): boolean {
   const scopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
   return scopes.includes(MCTL_OWNER_SCOPE);
@@ -118,10 +152,16 @@ function normalizePendingRecord(
       ? value.stage
       : "browser_flow_started";
   return {
-    version: value.version === 2 ? 2 : 1,
+    version: value.version === 3 ? 3 : value.version === 2 ? 2 : 1,
     redirectUri: value.redirectUri,
     state: value.state,
     codeVerifier: value.codeVerifier,
+    clientId:
+      typeof value.clientId === "string" && value.clientId.trim() ? value.clientId.trim() : null,
+    completionMode:
+      value.completionMode === "browser_callback" || value.completionMode === "manual_input"
+        ? value.completionMode
+        : null,
     startedAt: value.startedAt,
     requestedBy: value.requestedBy ?? null,
     stage,
@@ -199,7 +239,7 @@ export function buildFailedBeforeCallbackRecord(
   const failureAt = new Date(now).toISOString();
   return {
     ...pending,
-    version: 2,
+    version: 3,
     stage: "failed_before_callback",
     lastFailureAt: failureAt,
     lastError: pending.lastError ?? "OpenAI auth failed before the callback reached OpenClaw.",
@@ -266,6 +306,9 @@ export function buildOpenAICodexConnectStatus(params: {
       ? new Date(expiresAtMs).toISOString()
       : null;
   const teamRole = resolveTrustedProxyTeamRole(params.client);
+  const completionMode = params.pending
+    ? resolvePendingCompletionMode(params.pending)
+    : resolveDefaultCompletionMode();
   if (params.pending) {
     const lifecycle = resolveOpenAICodexPendingLifecycle(params.pending, now);
     return {
@@ -282,6 +325,7 @@ export function buildOpenAICodexConnectStatus(params: {
       requestedBy: params.pending.requestedBy,
       canManage: canManageOpenAICodex(params.client),
       teamRole,
+      completionMode,
     };
   }
   if (profile) {
@@ -299,6 +343,7 @@ export function buildOpenAICodexConnectStatus(params: {
       requestedBy: null,
       canManage: canManageOpenAICodex(params.client),
       teamRole,
+      completionMode,
     };
   }
   return {
@@ -315,5 +360,6 @@ export function buildOpenAICodexConnectStatus(params: {
     requestedBy: null,
     canManage: canManageOpenAICodex(params.client),
     teamRole,
+    completionMode,
   };
 }

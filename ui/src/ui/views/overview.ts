@@ -210,6 +210,7 @@ export function renderOverview(props: OverviewProps) {
     : i18n.getLocale();
   const mctlStatus = props.mctlConnectStatus;
   const codexStatus = props.codexConnectStatus;
+  const codexCompletionMode = codexStatus?.completionMode ?? "manual_input";
   const mctlLabel =
     mctlStatus?.state === "connected"
       ? mctlStatus.login
@@ -533,7 +534,9 @@ export function renderOverview(props: OverviewProps) {
           </button>
         </div>
         ${
-          codexCanManage && codexStatus?.state === "browser_flow_started"
+          codexCanManage &&
+          codexStatus?.state === "browser_flow_started" &&
+          codexCompletionMode === "manual_input"
             ? html`
                 <div style="margin-top: 14px; display: grid; gap: 8px;">
                   <label class="field">
@@ -572,7 +575,9 @@ export function renderOverview(props: OverviewProps) {
                         : codexStatus?.state === "callback_received"
                           ? "OpenClaw received the browser callback and is finalizing token exchange."
                           : codexStatus?.state === "browser_flow_started"
-                            ? "OpenAI sign-in opened in a separate tab. After it redirects to localhost, copy the full URL from the browser bar and paste it here."
+                            ? codexCompletionMode === "browser_callback"
+                              ? "Browser authorization is in progress. After OpenAI redirects back through app.mctl.ai, this page should finish automatically."
+                              : "OpenAI sign-in opened in a separate tab. After it redirects to localhost, copy the full URL from the browser bar and paste it here."
                             : "Owner can connect OpenAI Codex once in the browser. Credentials persist in service state."
                       : "Owner access required to connect or disconnect OpenAI Codex for this service."
                   }

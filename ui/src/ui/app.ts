@@ -418,6 +418,7 @@ export class OpenClawApp extends LitElement {
   @state() codexConnectLoading = false;
   @state() codexConnectStatus: import("./types.ts").OpenAICodexConnectStatus | null = null;
   @state() codexConnectError: string | null = null;
+  @state() codexCompletionMode: "manual_input" | "browser_callback" | null = null;
   @state() codexManualInput = "";
   @state() codexCallbackCode: string | null = null;
   @state() codexCallbackState: string | null = null;
