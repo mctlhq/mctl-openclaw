@@ -328,10 +328,32 @@ export async function runGatewayUpdateCheck(params: {
 
   const statePath = path.join(resolveStateDir(), UPDATE_CHECK_FILENAME);
   const state = await readState(statePath);
+  const currentVersion = resolveCurrentVersion();
+  const persistedCmp = state.lastAvailableVersion?.trim()
+    ? compareSemverStrings(currentVersion, state.lastAvailableVersion.trim())
+    : null;
+  const normalizedState: UpdateCheckState =
+    persistedCmp != null && persistedCmp >= 0
+      ? {
+          ...state,
+          lastAvailableVersion: undefined,
+          lastAvailableTag: undefined,
+          lastNotifiedVersion:
+            state.lastNotifiedVersion === state.lastAvailableVersion
+              ? undefined
+              : state.lastNotifiedVersion,
+          lastNotifiedTag:
+            state.lastNotifiedVersion === state.lastAvailableVersion
+              ? undefined
+              : state.lastNotifiedTag,
+        }
+      : state;
   const now = Date.now();
-  const lastCheckedAt = state.lastCheckedAt ? Date.parse(state.lastCheckedAt) : null;
+  const lastCheckedAt = normalizedState.lastCheckedAt
+    ? Date.parse(normalizedState.lastCheckedAt)
+    : null;
   if (shouldRunUpdateHints) {
-    const persistedAvailable = resolvePersistedUpdateAvailable(state);
+    const persistedAvailable = resolvePersistedUpdateAvailable(normalizedState);
     setUpdateAvailableCache({
       next: persistedAvailable,
       onUpdateAvailableChange: params.onUpdateAvailableChange,
@@ -345,6 +367,9 @@ export async function runGatewayUpdateCheck(params: {
   const checkIntervalMs = resolveCheckIntervalMs(params.cfg);
   if (lastCheckedAt && Number.isFinite(lastCheckedAt)) {
     if (now - lastCheckedAt < checkIntervalMs) {
+      if (normalizedState !== state) {
+        await writeState(statePath, normalizedState);
+      }
       return;
     }
   }
@@ -362,7 +387,7 @@ export async function runGatewayUpdateCheck(params: {
   });
 
   const nextState: UpdateCheckState = {
-    ...state,
+    ...normalizedState,
     lastCheckedAt: new Date(now).toISOString(),
   };
 
@@ -386,7 +411,6 @@ export async function runGatewayUpdateCheck(params: {
     return;
   }
 
-  const currentVersion = resolveCurrentVersion();
   const cmp = compareSemverStrings(currentVersion, resolved.version);
   if (cmp != null && cmp < 0) {
     const nextAvailable: UpdateAvailable = {
@@ -403,7 +427,8 @@ export async function runGatewayUpdateCheck(params: {
     nextState.lastAvailableVersion = resolved.version;
     nextState.lastAvailableTag = tag;
     const shouldNotify =
-      state.lastNotifiedVersion !== resolved.version || state.lastNotifiedTag !== tag;
+      normalizedState.lastNotifiedVersion !== resolved.version ||
+      normalizedState.lastNotifiedTag !== tag;
     if (shouldRunUpdateHints && shouldNotify) {
       params.log.info(
         `update available (${tag}): v${resolved.version} (current v${currentVersion}). Run: ${formatCliCommand("openclaw update")}`,
@@ -418,9 +443,11 @@ export async function runGatewayUpdateCheck(params: {
         channel === "beta"
           ? Math.max(ONE_HOUR_MS / 4, Math.floor(auto.betaCheckIntervalHours * ONE_HOUR_MS))
           : ONE_HOUR_MS;
-      const lastAttemptAt = state.autoLastAttemptAt ? Date.parse(state.autoLastAttemptAt) : null;
+      const lastAttemptAt = normalizedState.autoLastAttemptAt
+        ? Date.parse(normalizedState.autoLastAttemptAt)
+        : null;
       const recentAttemptForSameVersion =
-        state.autoLastAttemptVersion === resolved.version &&
+        normalizedState.autoLastAttemptVersion === resolved.version &&
         lastAttemptAt != null &&
         Number.isFinite(lastAttemptAt) &&
         now - lastAttemptAt < attemptIntervalMs;
@@ -429,7 +456,7 @@ export async function runGatewayUpdateCheck(params: {
       let applyAfterMs: number | null = null;
       if (channel === "stable") {
         applyAfterMs = resolveStableAutoApplyAtMs({
-          state,
+          state: normalizedState,
           nextState,
           nowMs: now,
           version: resolved.version,

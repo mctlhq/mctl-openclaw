@@ -273,6 +273,12 @@ describe("update-startup", () => {
     await runStableUpdateCheck({});
 
     expect(getUpdateAvailable()).toBeNull();
+    const persisted = JSON.parse(await fs.readFile(statePath, "utf-8")) as {
+      lastAvailableVersion?: string;
+      lastAvailableTag?: string;
+    };
+    expect(persisted.lastAvailableVersion).toBeUndefined();
+    expect(persisted.lastAvailableTag).toBeUndefined();
   });
 
   it("emits update change callback when update state clears", async () => {

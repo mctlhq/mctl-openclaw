@@ -222,6 +222,29 @@ describe("connectGateway", () => {
     });
   });
 
+  it("suppresses stale update banner when serverVersion is already newer", () => {
+    const host = createHost();
+    host.serverVersion = "2026.3.25-beta.23";
+
+    connectGateway(host);
+    const client = gatewayClientInstances[0];
+    expect(client).toBeDefined();
+
+    client.emitHello({
+      type: "hello-ok",
+      protocol: 3,
+      snapshot: {
+        updateAvailable: {
+          currentVersion: "2026.3.14",
+          latestVersion: "2026.3.24",
+          channel: "latest",
+        },
+      },
+    });
+
+    expect(host.updateAvailable).toBeNull();
+  });
+
   it("ignores stale client onClose callbacks after reconnect", () => {
     const host = createHost();
 

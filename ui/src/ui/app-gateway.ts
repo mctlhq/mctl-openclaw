@@ -2,6 +2,7 @@ import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   type GatewayUpdateAvailableEventPayload,
 } from "../../../src/gateway/events.js";
+import { compareSemverStrings } from "../../../src/infra/update-check.js";
 import { CHAT_SESSIONS_ACTIVE_MINUTES, flushChatQueueForEvent } from "./app-chat.ts";
 import type { EventLogEntry } from "./app-events.ts";
 import {
@@ -47,6 +48,28 @@ import type {
 
 function isGenericBrowserFetchFailure(message: string): boolean {
   return /^(?:typeerror:\s*)?(?:fetch failed|failed to fetch)$/i.test(message.trim());
+}
+
+function normalizeUpdateAvailable(
+  serverVersion: string | null | undefined,
+  updateAvailable: UpdateAvailable | null | undefined,
+): UpdateAvailable | null {
+  if (!updateAvailable) {
+    return null;
+  }
+  const current = serverVersion?.trim();
+  const latest = updateAvailable.latestVersion?.trim();
+  if (!current || !latest) {
+    return updateAvailable;
+  }
+  const cmp = compareSemverStrings(current, latest);
+  if (cmp != null && cmp >= 0) {
+    return null;
+  }
+  return {
+    ...updateAvailable,
+    currentVersion: current,
+  };
 }
 
 type GatewayHost = {
@@ -412,7 +435,7 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
 
   if (evt.event === GATEWAY_EVENT_UPDATE_AVAILABLE) {
     const payload = evt.payload as GatewayUpdateAvailableEventPayload | undefined;
-    host.updateAvailable = payload?.updateAvailable ?? null;
+    host.updateAvailable = normalizeUpdateAvailable(host.serverVersion, payload?.updateAvailable);
   }
 }
 
@@ -435,5 +458,5 @@ export function applySnapshot(host: GatewayHost, hello: GatewayHelloOk) {
   if (snapshot?.sessionDefaults) {
     applySessionDefaults(host, snapshot.sessionDefaults);
   }
-  host.updateAvailable = snapshot?.updateAvailable ?? null;
+  host.updateAvailable = normalizeUpdateAvailable(host.serverVersion, snapshot?.updateAvailable);
 }
