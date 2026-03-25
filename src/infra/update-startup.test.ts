@@ -33,6 +33,8 @@ vi.mock("./update-check.js", async () => {
 
 vi.mock("../version.js", () => ({
   VERSION: "1.0.0",
+  resolveRuntimeServiceVersion: (env: Record<string, string | undefined>, fallback?: string) =>
+    env.OPENCLAW_VERSION?.trim() || fallback || "1.0.0",
 }));
 
 vi.mock("../process/exec.js", () => ({
@@ -64,10 +66,11 @@ describe("update-startup", () => {
     vi.setSystemTime(new Date("2026-01-17T10:00:00Z"));
     tempDir = path.join(suiteRoot, `case-${++suiteCase}`);
     await fs.mkdir(tempDir);
-    envSnapshot = captureEnv(["OPENCLAW_STATE_DIR", "NODE_ENV", "VITEST"]);
+    envSnapshot = captureEnv(["OPENCLAW_STATE_DIR", "NODE_ENV", "VITEST", "OPENCLAW_VERSION"]);
     process.env.OPENCLAW_STATE_DIR = tempDir;
 
     process.env.NODE_ENV = "test";
+    delete process.env.OPENCLAW_VERSION;
 
     // Ensure update checks don't short-circuit in test mode.
     delete process.env.VITEST;
@@ -253,6 +256,23 @@ describe("update-startup", () => {
       latestVersion: "2.0.0",
       channel: "latest",
     });
+  });
+
+  it("suppresses persisted update banner when runtime OPENCLAW_VERSION is newer", async () => {
+    process.env.OPENCLAW_VERSION = "2026.3.25-beta.23";
+    const statePath = path.join(tempDir, "update-check.json");
+    await fs.writeFile(
+      statePath,
+      JSON.stringify({
+        lastCheckedAt: "2026-01-17T09:30:00.000Z",
+        lastAvailableVersion: "2026.3.24",
+        lastAvailableTag: "latest",
+      }),
+    );
+
+    await runStableUpdateCheck({});
+
+    expect(getUpdateAvailable()).toBeNull();
   });
 
   it("emits update change callback when update state clears", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { UpdateCheckResult } from "../infra/update-check.js";
 import { VERSION } from "../version.js";
 import {
@@ -6,6 +6,10 @@ import {
   formatUpdateOneLiner,
   resolveUpdateAvailability,
 } from "./status.update.js";
+
+afterEach(() => {
+  delete process.env.OPENCLAW_VERSION;
+});
 
 function buildUpdate(partial: Partial<UpdateCheckResult>): UpdateCheckResult {
   return {
@@ -62,6 +66,18 @@ describe("resolveUpdateAvailability", () => {
     expect(availability.hasGitUpdate).toBe(false);
     expect(availability.hasRegistryUpdate).toBe(true);
     expect(availability.latestVersion).toBe(latestVersion);
+  });
+
+  it("uses runtime OPENCLAW_VERSION for registry comparisons", () => {
+    process.env.OPENCLAW_VERSION = "2026.3.25-beta.23";
+    const update = buildUpdate({
+      installKind: "package",
+      packageManager: "pnpm",
+      registry: { latestVersion: "2026.3.24" },
+    });
+    const availability = resolveUpdateAvailability(update);
+    expect(availability.available).toBe(false);
+    expect(availability.hasRegistryUpdate).toBe(false);
   });
 });
 

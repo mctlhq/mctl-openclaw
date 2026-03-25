@@ -5,7 +5,7 @@ import { formatCliCommand } from "../cli/command-format.js";
 import type { loadConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { runCommandWithTimeout } from "../process/exec.js";
-import { VERSION } from "../version.js";
+import { resolveRuntimeServiceVersion, VERSION } from "../version.js";
 import { writeJsonAtomic } from "./json-files.js";
 import { resolveOpenClawPackageRoot } from "./openclaw-root.js";
 import { normalizeUpdateChannel, DEFAULT_PACKAGE_CHANNEL } from "./update-channels.js";
@@ -49,6 +49,10 @@ export type UpdateAvailable = {
 };
 
 let updateAvailableCache: UpdateAvailable | null = null;
+
+function resolveCurrentVersion(): string {
+  return resolveRuntimeServiceVersion(process.env, VERSION);
+}
 
 export function getUpdateAvailable(): UpdateAvailable | null {
   return updateAvailableCache;
@@ -158,13 +162,14 @@ function resolvePersistedUpdateAvailable(state: UpdateCheckState): UpdateAvailab
   if (!latestVersion) {
     return null;
   }
-  const cmp = compareSemverStrings(VERSION, latestVersion);
+  const currentVersion = resolveCurrentVersion();
+  const cmp = compareSemverStrings(currentVersion, latestVersion);
   if (cmp == null || cmp >= 0) {
     return null;
   }
   const channel = state.lastAvailableTag?.trim() || DEFAULT_PACKAGE_CHANNEL;
   return {
-    currentVersion: VERSION,
+    currentVersion,
     latestVersion,
     channel,
   };
@@ -381,10 +386,11 @@ export async function runGatewayUpdateCheck(params: {
     return;
   }
 
-  const cmp = compareSemverStrings(VERSION, resolved.version);
+  const currentVersion = resolveCurrentVersion();
+  const cmp = compareSemverStrings(currentVersion, resolved.version);
   if (cmp != null && cmp < 0) {
     const nextAvailable: UpdateAvailable = {
-      currentVersion: VERSION,
+      currentVersion,
       latestVersion: resolved.version,
       channel: tag,
     };
@@ -400,7 +406,7 @@ export async function runGatewayUpdateCheck(params: {
       state.lastNotifiedVersion !== resolved.version || state.lastNotifiedTag !== tag;
     if (shouldRunUpdateHints && shouldNotify) {
       params.log.info(
-        `update available (${tag}): v${resolved.version} (current v${VERSION}). Run: ${formatCliCommand("openclaw update")}`,
+        `update available (${tag}): v${resolved.version} (current v${currentVersion}). Run: ${formatCliCommand("openclaw update")}`,
       );
       nextState.lastNotifiedVersion = resolved.version;
       nextState.lastNotifiedTag = tag;

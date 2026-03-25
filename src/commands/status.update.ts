@@ -5,7 +5,11 @@ import {
   compareSemverStrings,
   type UpdateCheckResult,
 } from "../infra/update-check.js";
-import { VERSION } from "../version.js";
+import { resolveRuntimeServiceVersion, VERSION } from "../version.js";
+
+function resolveCurrentVersion(): string {
+  return resolveRuntimeServiceVersion(process.env, VERSION);
+}
 
 export async function getUpdateCheckResult(params: {
   timeoutMs: number;
@@ -34,8 +38,9 @@ export type UpdateAvailability = {
 };
 
 export function resolveUpdateAvailability(update: UpdateCheckResult): UpdateAvailability {
+  const currentVersion = resolveCurrentVersion();
   const latestVersion = update.registry?.latestVersion ?? null;
-  const registryCmp = latestVersion ? compareSemverStrings(VERSION, latestVersion) : null;
+  const registryCmp = latestVersion ? compareSemverStrings(currentVersion, latestVersion) : null;
   const hasRegistryUpdate = registryCmp != null && registryCmp < 0;
   const gitBehind =
     update.installKind === "git" && typeof update.git?.behind === "number"
@@ -70,11 +75,12 @@ export function formatUpdateAvailableHint(update: UpdateCheckResult): string | n
 }
 
 export function formatUpdateOneLiner(update: UpdateCheckResult): string {
+  const currentVersion = resolveCurrentVersion();
   const parts: string[] = [];
 
   const appendRegistryUpdateSummary = () => {
     if (update.registry?.latestVersion) {
-      const cmp = compareSemverStrings(VERSION, update.registry.latestVersion);
+      const cmp = compareSemverStrings(currentVersion, update.registry.latestVersion);
       if (cmp === 0) {
         if (update.installKind !== "git") {
           parts.push("up to date");
