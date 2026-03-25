@@ -86,10 +86,13 @@ jobs:
             const repo = context.repo.repo;
             const head = `${owner}:${process.env.BRANCH_NAME}`;
             const base = "main";
+            const codexReviewMarker = "<!-- codex-review-trigger -->";
+            const codexReviewBody = `${codexReviewMarker}\n@codex review`;
             const bodyTemplate = fs.readFileSync(".github/upstream_sync_pr_template.md", "utf8");
             const body = bodyTemplate
               .replaceAll("{{UPSTREAM_SHA}}", process.env.UPSTREAM_SHA)
               .replaceAll("{{BASE_SHA}}", process.env.BASE_SHA);
+            let prNumber;
 
             const existing = await github.paginate(github.rest.pulls.list, {
               owner,
@@ -109,17 +112,46 @@ jobs:
                 title: `chore(sync): merge upstream/main into main (${process.env.BRANCH_NAME})`,
                 body,
               });
+              prNumber = pr.number;
               core.info(`Updated PR #${pr.number}`);
-              return;
+            } else {
+              const pr = await github.rest.pulls.create({
+                owner,
+                repo,
+                title: `chore(sync): merge upstream/main into main (${process.env.BRANCH_NAME})`,
+                head,
+                base,
+                body,
+                maintainer_can_modify: true,
+              });
+              prNumber = pr.data.number;
+              core.info(`Created PR #${pr.data.number}`);
             }
 
-            const pr = await github.rest.pulls.create({
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner,
               repo,
-              title: `chore(sync): merge upstream/main into main (${process.env.BRANCH_NAME})`,
-              head,
-              base,
-              body,
-              maintainer_can_modify: true,
+              issue_number: prNumber,
+              per_page: 100,
             });
-            core.info(`Created PR #${pr.data.number}`);
+            const existingTrigger = comments.find((comment) =>
+              typeof comment.body === "string" && comment.body.includes(codexReviewMarker),
+            );
+
+            if (existingTrigger) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existingTrigger.id,
+                body: codexReviewBody,
+              });
+              core.info(`Updated Codex review trigger comment on PR #${prNumber}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: codexReviewBody,
+              });
+              core.info(`Created Codex review trigger comment on PR #${prNumber}`);
+            }
