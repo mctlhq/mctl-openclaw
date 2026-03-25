@@ -15,9 +15,23 @@ import { ErrorCodes, errorShape } from "../protocol/index.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
 const DEFAULT_MCTL_API_BASE = "https://api.mctl.ai";
+const MCTL_STATUS_QUEUE = new Map<string, Promise<unknown>>();
 
 function resolveMctlApiBase(): string {
   return process.env.MCTL_API_URL?.trim() || DEFAULT_MCTL_API_BASE;
+}
+
+async function serializeMctlStatusByKey<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const prev = MCTL_STATUS_QUEUE.get(key) ?? Promise.resolve();
+  const next = prev.then(task, task);
+  MCTL_STATUS_QUEUE.set(key, next);
+  try {
+    return await next;
+  } finally {
+    if (MCTL_STATUS_QUEUE.get(key) === next) {
+      MCTL_STATUS_QUEUE.delete(key);
+    }
+  }
 }
 
 function randomBase64Url(bytes: number): string {
@@ -109,6 +123,10 @@ async function refreshMctlCredentials(
   };
   if (!tokenRes.ok) {
     if (isInvalidRefreshError(tokenBody)) {
+      const latest = await readMctlCredentials();
+      if (latest && latest.refreshToken.trim() && latest.refreshToken.trim() !== refreshToken) {
+        return latest;
+      }
       await deleteMctlCredentials();
       return null;
     }
@@ -151,7 +169,13 @@ export const mctlHandlers: GatewayRequestHandlers = {
       readMctlPendingConnect(),
     ]);
     if (!pending && credentials && isExpired(credentials) && credentials.refreshToken.trim()) {
-      credentials = await refreshMctlCredentials(credentials);
+      credentials = await serializeMctlStatusByKey("mctl-oauth-refresh", async () => {
+        const latest = await readMctlCredentials();
+        if (!latest || !isExpired(latest) || !latest.refreshToken.trim()) {
+          return latest;
+        }
+        return await refreshMctlCredentials(latest);
+      });
     }
     respond(true, buildMctlConnectStatus({ apiBase, credentials, pending }), undefined);
   },

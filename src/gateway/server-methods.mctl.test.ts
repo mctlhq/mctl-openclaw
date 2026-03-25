@@ -16,13 +16,13 @@ function makeJwt(sub: string): string {
   return `${header}.${payload}.sig`;
 }
 
-async function invokeStatus(): Promise<MctlConnectStatus> {
+async function invokeStatus(reqId = "req-1"): Promise<MctlConnectStatus> {
   return await new Promise<MctlConnectStatus>((resolve, reject) => {
     void mctlHandlers["mctl.connect.status"]({
       params: {},
       client: null,
       isWebchatConnect: () => false,
-      req: { id: "req-1", method: "mctl.connect.status" },
+      req: { id: reqId, method: "mctl.connect.status" },
       context: {} as never,
       respond: (ok, payload, error) => {
         if (!ok) {
@@ -139,5 +139,89 @@ describe("mctl.connect.status", () => {
 
     expect(status.state).toBe("disconnected");
     await expect(fs.access(resolveMctlCredentialsPath())).rejects.toThrow();
+  });
+
+  it("serializes concurrent status refreshes so rotated tokens are not lost", async () => {
+    await writeMctlCredentials({
+      version: 1,
+      apiBase: "https://api.test.mctl.ai",
+      clientId: "client-1",
+      accessToken: makeJwt("old-user"),
+      refreshToken: "refresh-1",
+      scope: "mctl",
+      login: "old-user",
+      connectedAt: "2026-03-25T10:00:00.000Z",
+      updatedAt: "2026-03-25T10:00:00.000Z",
+      expiresAt: "2026-03-25T10:05:00.000Z",
+    });
+    vi.setSystemTime(new Date("2026-03-25T10:06:00.000Z"));
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          access_token: makeJwt("mashkoffdmitry"),
+          refresh_token: "refresh-2",
+          expires_in: 3600,
+          scope: "mctl",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [status1, status2] = await Promise.all([invokeStatus("req-a"), invokeStatus("req-b")]);
+    const stored = await readMctlCredentials();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(status1.state).toBe("connected");
+    expect(status2.state).toBe("connected");
+    expect(stored?.refreshToken).toBe("refresh-2");
+    expect(stored?.login).toBe("mashkoffdmitry");
+  });
+
+  it("does not delete newer credentials after a stale invalid refresh response", async () => {
+    await writeMctlCredentials({
+      version: 1,
+      apiBase: "https://api.test.mctl.ai",
+      clientId: "client-1",
+      accessToken: makeJwt("old-user"),
+      refreshToken: "refresh-1",
+      scope: "mctl",
+      login: "old-user",
+      connectedAt: "2026-03-25T10:00:00.000Z",
+      updatedAt: "2026-03-25T10:00:00.000Z",
+      expiresAt: "2026-03-25T10:05:00.000Z",
+    });
+    vi.setSystemTime(new Date("2026-03-25T10:06:00.000Z"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        await writeMctlCredentials({
+          version: 1,
+          apiBase: "https://api.test.mctl.ai",
+          clientId: "client-1",
+          accessToken: makeJwt("fresh-user"),
+          refreshToken: "refresh-2",
+          scope: "mctl",
+          login: "fresh-user",
+          connectedAt: "2026-03-25T10:00:00.000Z",
+          updatedAt: "2026-03-25T10:06:00.000Z",
+          expiresAt: "2026-03-25T11:06:00.000Z",
+        });
+        return new Response(
+          JSON.stringify({
+            error: "invalid_grant",
+            error_description: "refresh token expired",
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+
+    const status = await invokeStatus();
+    const stored = await readMctlCredentials();
+
+    expect(status.state).toBe("connected");
+    expect(status.login).toBe("fresh-user");
+    expect(stored?.refreshToken).toBe("refresh-2");
   });
 });
