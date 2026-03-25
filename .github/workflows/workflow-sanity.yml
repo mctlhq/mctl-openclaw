@@ -14,8 +14,31 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  gate-sync-merge:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    outputs:
+      skip_push_sync: ${{ steps.gate.outputs.skip_push_sync }}
+    steps:
+      - name: Detect upstream sync merge push
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+        run: |
+          set -euo pipefail
+          skip="false"
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            msg="${HEAD_COMMIT_MESSAGE}"
+            if [[ "${msg}" == chore(sync):\ merge\ upstream/main\ into\ main\ (* ]]; then
+              skip="true"
+            fi
+          fi
+          echo "skip_push_sync=${skip}" >> "$GITHUB_OUTPUT"
+
   no-tabs:
-    if: github.event_name != 'workflow_dispatch'
+    needs: [gate-sync-merge]
+    if: needs.gate-sync-merge.outputs.skip_push_sync != 'true' && github.event_name != 'workflow_dispatch'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
@@ -47,7 +70,8 @@ jobs:
           PY
 
   actionlint:
-    if: github.event_name != 'workflow_dispatch'
+    needs: [gate-sync-merge]
+    if: needs.gate-sync-merge.outputs.skip_push_sync != 'true' && github.event_name != 'workflow_dispatch'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
@@ -73,7 +97,8 @@ jobs:
         run: python3 scripts/check-composite-action-input-interpolation.py
 
   config-docs-drift:
-    if: github.event_name == 'workflow_dispatch'
+    needs: [gate-sync-merge]
+    if: needs.gate-sync-merge.outputs.skip_push_sync != 'true' && github.event_name == 'workflow_dispatch'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout

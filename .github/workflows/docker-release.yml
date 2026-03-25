@@ -29,8 +29,44 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  gate-sync-release:
+    runs-on: ubuntu-24.04
+    outputs:
+      skip_release: ${{ steps.gate.outputs.skip_release }}
+    steps:
+      - name: Checkout ref
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          fetch-depth: 0
+
+      - name: Detect sync-managed release refs
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+          SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+        run: |
+          set -euo pipefail
+          skip="false"
+          if [[ "${EVENT_NAME}" == "push" && "${SOURCE_REF}" == "refs/heads/main" ]]; then
+            msg="${HEAD_COMMIT_MESSAGE}"
+            if [[ "${msg}" == chore(sync):\ merge\ upstream/main\ into\ main\ (* ]]; then
+              skip="true"
+            fi
+          fi
+          if [[ "${EVENT_NAME}" == "push" && "${SOURCE_REF}" == refs/tags/v* ]]; then
+            tag_name="${SOURCE_REF#refs/tags/}"
+            if git for-each-ref "refs/tags/${tag_name}" --format='%(contents)' | grep -q 'skip-local-docker-release=true'; then
+              skip="true"
+            fi
+          fi
+          echo "skip_release=${skip}" >> "$GITHUB_OUTPUT"
+
   validate_manual_backfill:
-    if: github.event_name == 'workflow_dispatch'
+    needs: [gate-sync-release]
+    if: github.event_name == 'workflow_dispatch' && needs.gate-sync-release.outputs.skip_release != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -67,8 +103,8 @@ jobs:
   # DO NOT MOVE IT BACK TO BLACKSMITH WITHOUT RE-VALIDATING TAG BUILDS AND BACKFILLS.
   # Build amd64 images (default + slim share the build stage cache)
   build-amd64:
-    needs: [approve_manual_backfill]
-    if: ${{ always() && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
+    needs: [gate-sync-release, approve_manual_backfill]
+    if: ${{ always() && needs.gate-sync-release.outputs.skip_release != 'true' && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
     # WARNING: DO NOT REVERT THIS TO A BLACKSMITH RUNNER WITHOUT RE-VALIDATING TAG BACKFILLS.
     runs-on: ubuntu-24.04
     permissions:
@@ -184,8 +220,8 @@ jobs:
 
   # Build arm64 images (default + slim share the build stage cache)
   build-arm64:
-    needs: [approve_manual_backfill]
-    if: ${{ always() && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
+    needs: [gate-sync-release, approve_manual_backfill]
+    if: ${{ always() && needs.gate-sync-release.outputs.skip_release != 'true' && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
     # WARNING: DO NOT REVERT THIS TO A BLACKSMITH RUNNER WITHOUT RE-VALIDATING TAG BACKFILLS.
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -301,8 +337,8 @@ jobs:
 
   # Create multi-platform manifests
   create-manifest:
-    needs: [approve_manual_backfill, build-amd64, build-arm64]
-    if: ${{ always() && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
+    needs: [gate-sync-release, approve_manual_backfill, build-amd64, build-arm64]
+    if: ${{ always() && needs.gate-sync-release.outputs.skip_release != 'true' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
     # WARNING: DO NOT REVERT THIS TO A BLACKSMITH RUNNER WITHOUT RE-VALIDATING TAG BACKFILLS.
     runs-on: ubuntu-24.04
     permissions:

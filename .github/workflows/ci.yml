@@ -14,10 +14,33 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  gate-sync-merge:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    outputs:
+      skip_push_sync: ${{ steps.gate.outputs.skip_push_sync }}
+    steps:
+      - name: Detect upstream sync merge push
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+        run: |
+          set -euo pipefail
+          skip="false"
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            msg="${HEAD_COMMIT_MESSAGE}"
+            if [[ "${msg}" == chore(sync):\ merge\ upstream/main\ into\ main\ (* ]]; then
+              skip="true"
+            fi
+          fi
+          echo "skip_push_sync=${skip}" >> "$GITHUB_OUTPUT"
+
   # Detect docs-only changes to skip heavy jobs (test, build, Windows, macOS, Android).
   # Lint and format always run. Fail-safe: if detection fails, run everything.
   docs-scope:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: [gate-sync-merge]
+    if: needs.gate-sync-merge.outputs.skip_push_sync != 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     outputs:
       docs_only: ${{ steps.check.outputs.docs_only }}
@@ -43,8 +66,8 @@ jobs:
   # Detect which heavy areas are touched so CI can skip unrelated expensive jobs.
   # Fail-safe: if detection fails, downstream jobs run.
   changed-scope:
-    needs: [docs-scope]
-    if: needs.docs-scope.outputs.docs_only != 'true'
+    needs: [gate-sync-merge, docs-scope]
+    if: needs.gate-sync-merge.outputs.skip_push_sync != 'true' && needs.docs-scope.outputs.docs_only != 'true'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     outputs:
       run_node: ${{ steps.scope.outputs.run_node }}

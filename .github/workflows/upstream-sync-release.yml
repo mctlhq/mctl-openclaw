@@ -69,7 +69,7 @@ jobs:
           RELEASE_TAG: ${{ steps.tag.outputs.release_tag }}
         run: |
           set -euo pipefail
-          git tag "${RELEASE_TAG}"
+          git tag -a "${RELEASE_TAG}" -m "upstream-sync-release" -m "skip-local-docker-release=true"
           git push origin "refs/tags/${RELEASE_TAG}"
 
       - name: Create mctl-gitops dispatch token
