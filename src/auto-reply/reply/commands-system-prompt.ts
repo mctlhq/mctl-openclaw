@@ -14,6 +14,7 @@ import type { WorkspaceBootstrapFile } from "../../agents/workspace.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
 import { buildTtsSystemPromptHint } from "../../tts/tts.js";
 import type { HandleCommandsParams } from "./commands-types.js";
+import { mergeSkillFilters, resolveSessionSkillFilter } from "./skill-filter.js";
 
 export type CommandsSystemPromptBundle = {
   systemPrompt: string;
@@ -36,8 +37,13 @@ export async function resolveCommandsSystemPromptBundle(
   });
   const skillsSnapshot = (() => {
     try {
+      const skillFilter = mergeSkillFilters(
+        params.opts?.skillFilter,
+        resolveSessionSkillFilter(params.sessionKey),
+      );
       return buildWorkspaceSkillSnapshot(workspaceDir, {
         config: params.cfg,
+        skillFilter,
         eligibility: { remote: getRemoteSkillEligibility() },
         snapshotVersion: getSkillsSnapshotVersion(workspaceDir),
       });

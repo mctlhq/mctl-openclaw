@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HandleCommandsParams } from "./commands-types.js";
 
-const { createOpenClawCodingToolsMock } = vi.hoisted(() => ({
+const { createOpenClawCodingToolsMock, buildWorkspaceSkillSnapshotMock } = vi.hoisted(() => ({
   createOpenClawCodingToolsMock: vi.fn(() => []),
+  buildWorkspaceSkillSnapshotMock: vi.fn(() => ({ prompt: "", skills: [], resolvedSkills: [] })),
 }));
 
 vi.mock("../../agents/bootstrap-files.js", () => ({
@@ -21,7 +22,7 @@ vi.mock("../../agents/sandbox.js", () => ({
 }));
 
 vi.mock("../../agents/skills.js", () => ({
-  buildWorkspaceSkillSnapshot: vi.fn(() => ({ prompt: "", skills: [], resolvedSkills: [] })),
+  buildWorkspaceSkillSnapshot: buildWorkspaceSkillSnapshotMock,
 }));
 
 vi.mock("../../agents/skills/refresh.js", () => ({
@@ -110,6 +111,8 @@ describe("resolveCommandsSystemPromptBundle", () => {
   beforeEach(() => {
     createOpenClawCodingToolsMock.mockClear();
     createOpenClawCodingToolsMock.mockReturnValue([]);
+    buildWorkspaceSkillSnapshotMock.mockClear();
+    buildWorkspaceSkillSnapshotMock.mockReturnValue({ prompt: "", skills: [], resolvedSkills: [] });
   });
 
   it("opts command tool builds into gateway subagent binding", async () => {
@@ -121,6 +124,21 @@ describe("resolveCommandsSystemPromptBundle", () => {
         sessionKey: "agent:main:default",
         workspaceDir: "/tmp/workspace",
         messageProvider: "telegram",
+      }),
+    );
+  });
+
+  it("restricts hook mctl sessions to the incident skill set", async () => {
+    await resolveCommandsSystemPromptBundle({
+      ...makeParams(),
+      sessionKey: "agent:main:hook:mctl-agent:test-ticket",
+      ctx: { SessionKey: "agent:main:hook:mctl-agent:test-ticket" },
+    });
+
+    expect(buildWorkspaceSkillSnapshotMock).toHaveBeenCalledWith(
+      "/tmp/workspace",
+      expect.objectContaining({
+        skillFilter: ["mctl-agent-external", "mctl-platform", "mctl-gitops-remediation"],
       }),
     );
   });

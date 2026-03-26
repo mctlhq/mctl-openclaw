@@ -10,7 +10,6 @@ import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { defaultRuntime } from "../../runtime.js";
-import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -24,36 +23,12 @@ import { finalizeInboundContext } from "./inbound-context.js";
 import { emitPreAgentMessageHooks } from "./message-preprocess-hooks.js";
 import { applyResetModelOverride } from "./session-reset-model.js";
 import { initSessionState } from "./session.js";
+import { mergeSkillFilters, resolveSessionSkillFilter } from "./skill-filter.js";
 import { stageSandboxMedia } from "./stage-sandbox-media.js";
 import { createTypingController } from "./typing.js";
 
 function shouldLogCoreIngressTiming(): boolean {
   return process.env.OPENCLAW_DEBUG_INGRESS_TIMING === "1";
-}
-
-function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): string[] | undefined {
-  const normalize = (list?: string[]) => {
-    if (!Array.isArray(list)) {
-      return undefined;
-    }
-    return normalizeStringEntries(list);
-  };
-  const channel = normalize(channelFilter);
-  const agent = normalize(agentFilter);
-  if (!channel && !agent) {
-    return undefined;
-  }
-  if (!channel) {
-    return agent;
-  }
-  if (!agent) {
-    return channel;
-  }
-  if (channel.length === 0 || agent.length === 0) {
-    return [];
-  }
-  const agentSet = new Set(agent);
-  return channel.filter((name) => agentSet.has(name));
 }
 
 function hasInboundMedia(ctx: MsgContext): boolean {
@@ -130,6 +105,7 @@ export async function getReplyFromConfig(
   });
   const mergedSkillFilter = mergeSkillFilters(
     opts?.skillFilter,
+    resolveSessionSkillFilter(agentSessionKey),
     resolveAgentSkillsFilter(cfg, agentId),
   );
   const resolvedOpts =
