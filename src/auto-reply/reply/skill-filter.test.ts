@@ -7,6 +7,7 @@ describe("resolveSessionSkillFilter", () => {
       "mctl-agent-external",
       "mctl-platform",
       "mctl-gitops-remediation",
+      "mctl-github-remediation",
     ]);
   });
 

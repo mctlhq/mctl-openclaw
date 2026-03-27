@@ -4,6 +4,7 @@ const MCTL_HOOK_SKILLS = [
   "mctl-agent-external",
   "mctl-platform",
   "mctl-gitops-remediation",
+  "mctl-github-remediation",
 ] as const;
 
 export function resolveSessionSkillFilter(sessionKey?: string): string[] | undefined {

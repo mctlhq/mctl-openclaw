@@ -138,7 +138,12 @@ describe("resolveCommandsSystemPromptBundle", () => {
     expect(buildWorkspaceSkillSnapshotMock).toHaveBeenCalledWith(
       "/tmp/workspace",
       expect.objectContaining({
-        skillFilter: ["mctl-agent-external", "mctl-platform", "mctl-gitops-remediation"],
+        skillFilter: [
+          "mctl-agent-external",
+          "mctl-platform",
+          "mctl-gitops-remediation",
+          "mctl-github-remediation",
+        ],
       }),
     );
   });
