@@ -42,7 +42,7 @@ jobs:
       - name: Fetch origin and upstream
         run: |
           git fetch origin main --prune --tags
-          git fetch upstream main --prune --tags
+          git fetch upstream main --prune --no-tags
 
       - name: Prepare sync branch
         id: prepare
