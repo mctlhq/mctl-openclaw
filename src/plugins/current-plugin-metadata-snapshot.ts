@@ -54,12 +54,16 @@ export function getCurrentPluginMetadataSnapshot(
   const { snapshot: rawSnapshot, configFingerprint } = getCurrentPluginMetadataSnapshotState();
   const snapshot = rawSnapshot as PluginMetadataSnapshot | undefined;
   if (!snapshot) {
+    console.error(`[TEMP-DEBUG-34] miss: no snapshot`);
     return undefined;
   }
   if (
     params.config &&
     snapshot.policyHash !== resolveInstalledPluginIndexPolicyHash(params.config)
   ) {
+    console.error(
+      `[TEMP-DEBUG-34] miss: policyHash snapshot=${snapshot.policyHash} requested=${resolveInstalledPluginIndexPolicyHash(params.config)}`,
+    );
     return undefined;
   }
   if (params.config) {
@@ -70,20 +74,33 @@ export function getCurrentPluginMetadataSnapshot(
       workspaceDir: params.workspaceDir,
     });
     if (configFingerprint && configFingerprint !== requestedConfigFingerprint) {
+      console.error(
+        `[TEMP-DEBUG-34] miss: configFingerprint(state) stored=${configFingerprint} requested=${requestedConfigFingerprint} workspaceDir=${params.workspaceDir}`,
+      );
       return undefined;
     }
     if (snapshot.configFingerprint && snapshot.configFingerprint !== requestedConfigFingerprint) {
+      console.error(
+        `[TEMP-DEBUG-34] miss: configFingerprint(snapshot) stored=${snapshot.configFingerprint} requested=${requestedConfigFingerprint} workspaceDir=${params.workspaceDir}`,
+      );
       return undefined;
     }
   }
   if (snapshot.workspaceDir !== undefined && params.workspaceDir === undefined) {
+    console.error(
+      `[TEMP-DEBUG-34] miss: snapshot.workspaceDir=${snapshot.workspaceDir} params.workspaceDir=undefined`,
+    );
     return undefined;
   }
   if (
     params.workspaceDir !== undefined &&
     (snapshot.workspaceDir ?? "") !== (params.workspaceDir ?? "")
   ) {
+    console.error(
+      `[TEMP-DEBUG-34] miss: workspaceDir snapshot=${JSON.stringify(snapshot.workspaceDir)} params=${JSON.stringify(params.workspaceDir)}`,
+    );
     return undefined;
   }
+  console.error(`[TEMP-DEBUG-34] HIT`);
   return snapshot;
 }
