@@ -62,7 +62,7 @@ export function getCurrentPluginMetadataSnapshot(
     snapshot.policyHash !== resolveInstalledPluginIndexPolicyHash(params.config)
   ) {
     console.error(
-      `[TEMP-DEBUG-34] miss: policyHash snapshot=${snapshot.policyHash} requested=${resolveInstalledPluginIndexPolicyHash(params.config)}`,
+      `[TEMP-DEBUG-34] miss: policyHash snapshot=${snapshot.policyHash} requested=${resolveInstalledPluginIndexPolicyHash(params.config)}\n${new Error().stack?.split("\n").slice(1, 8).join("\n")}`,
     );
     return undefined;
   }
@@ -75,7 +75,7 @@ export function getCurrentPluginMetadataSnapshot(
     });
     if (configFingerprint && configFingerprint !== requestedConfigFingerprint) {
       console.error(
-        `[TEMP-DEBUG-34] miss: configFingerprint(state) stored=${configFingerprint} requested=${requestedConfigFingerprint} workspaceDir=${params.workspaceDir}`,
+        `[TEMP-DEBUG-34] miss: configFingerprint(state) stored=${configFingerprint} requested=${requestedConfigFingerprint} workspaceDir=${params.workspaceDir}\n${new Error().stack?.split("\n").slice(1, 8).join("\n")}`,
       );
       return undefined;
     }
