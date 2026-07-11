@@ -203,3 +203,12 @@ Upstream generic fixes whenever the change is broadly useful and does not rely o
 ## Automated PR review
 
 PRs are reviewed automatically by `.github/workflows/claude-review.yml` (claude-opus-4-8). The bootstrap PR that adds the workflow is merged directly (anti-tamper); every subsequent PR gets a review.
+
+## Alternative fork base evaluation
+
+Evaluated 2026-07-12 (issue #38). The question of switching from openclaw to an alternative base was raised. Research found no viable migration target:
+
+- "MiniClaw"/"mini-claw" is an overloaded, unclaimed name reused across many unrelated hobby projects (Telegram bots, edge-AI toys, MCP micro-kernels). `miniclaw.dev` reads as placeholder marketing copy with future-dated copyright and placeholder GitHub usernames.
+- `memovai/mimiclaw` (5.6k stars, MIT, active as of 2026-07) is a from-scratch C reimplementation of the openclaw agent loop for the $5 ESP32-S3 microcontroller. It targets bare-metal hardware (no Linux, no server process, single-user, no OAuth/gateway/multi-tenant surface) and is architecturally incompatible with mctl-openclaw's use case.
+
+**Decision:** continue using openclaw as the fork base. No migration issue opened. Re-evaluate only if a concrete server-side, multi-tenant alternative with an active maintenance track emerges.
